@@ -1,0 +1,9 @@
+[submodule "my_tools"]
+	path = my_tools
+	url = https://github.com/zerd90/my_tools.git
+[submodule "imgui_base"]
+	path = imgui_base
+	url = https://github.com/zerd90/imgui_base.git
+[submodule "Mp4ParseLib"]
+	path = Mp4ParseLib
+	url = https://github.com/zerd90/Mp4ParseLib.git
