@@ -99,10 +99,10 @@ public:
         bc_mp4_extend_box_head_t head;
 
         /*real data ,to be extended*/
-        unsigned int   endtime;
-        unsigned int   firstPts;
+        unsigned int               endtime;
+        unsigned int               firstPts;
         std::unique_ptr<uint8_t[]> tlv;
-        int            tlv_len;
+        int                        tlv_len;
     };
     bc_mp4_moov_extra_t mMoovExtra;
     // End Baichuan Extra Data

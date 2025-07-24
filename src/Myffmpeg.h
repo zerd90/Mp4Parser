@@ -171,15 +171,14 @@ private:
     // _T *resource;
 };
 #ifdef AV_PIX_FMT_D3D12
-#define AV_PIX_FMT_D3D12 227
+    #define AV_PIX_FMT_D3D12 227
 #endif
 static inline bool isHardwareFormat(AVPixelFormat format)
 {
     return AV_PIX_FMT_D3D11 == format || AV_PIX_FMT_D3D11VA_VLD == format || AV_PIX_FMT_DXVA2_VLD == format
         || AV_PIX_FMT_VIDEOTOOLBOX == format || AV_PIX_FMT_MEDIACODEC == format || AV_PIX_FMT_CUDA == format
-        || AV_PIX_FMT_VAAPI == format || AV_PIX_FMT_VDPAU == format || AV_PIX_FMT_QSV == format
-        || AV_PIX_FMT_MMAL == format || AV_PIX_FMT_OPENCL == format || AV_PIX_FMT_VULKAN == format
-        || AV_PIX_FMT_D3D12 == format;
+        || AV_PIX_FMT_VAAPI == format || AV_PIX_FMT_VDPAU == format || AV_PIX_FMT_QSV == format || AV_PIX_FMT_MMAL == format
+        || AV_PIX_FMT_OPENCL == format || AV_PIX_FMT_VULKAN == format || AV_PIX_FMT_D3D12 == format;
 }
 static inline std::vector<AVHWDeviceType> getSupportHWDeviceType()
 {
@@ -601,8 +600,7 @@ public:
         m_codec_type = AVCodecDecoder;
         return init_from_format(formatContext, stream_idx, avcodec_find_decoder, nullptr, setExtraParameter);
     }
-    int init_decoder(MyAVFormatContext &fmt, int stream_idx,
-                     std::function<void(AVCodecContext *)> setExtraParameter = nullptr)
+    int init_decoder(MyAVFormatContext &fmt, int stream_idx, std::function<void(AVCodecContext *)> setExtraParameter = nullptr)
     {
         return init_decoder(fmt.get(), stream_idx, setExtraParameter);
     }
@@ -635,8 +633,7 @@ public:
         return init_encoder(fmt.get(), stream_idx, timeBase, setExtraParameter);
     }
 
-    int init_encoder(AVCodecID codec_id, AVRational timeBase,
-                     std::function<void(AVCodecContext *)> setExtraParameter = nullptr)
+    int init_encoder(AVCodecID codec_id, AVRational timeBase, std::function<void(AVCodecContext *)> setExtraParameter = nullptr)
     {
         clear();
         m_codec_type = AVCodecEncoder;
@@ -819,9 +816,8 @@ private:
         return 0;
     }
 
-    int init_from_format(AVFormatContext *formatContext, int                          stream_idx,
-                         const AVCodec *(*find_codec_func)(AVCodecID id), AVRational *timeBase = nullptr,
-                         std::function<void(AVCodecContext *)> setExtraParameter = nullptr)
+    int init_from_format(AVFormatContext *formatContext, int stream_idx, const AVCodec *(*find_codec_func)(AVCodecID id),
+                         AVRational *timeBase = nullptr, std::function<void(AVCodecContext *)> setExtraParameter = nullptr)
     {
         AVCodecParameters *codec_par = formatContext->streams[stream_idx]->codecpar;
         if (!codec_par)
@@ -847,8 +843,7 @@ private:
         return init(nullptr, timeBase, setExtraParameter);
     }
 
-    int init_by_codec_id(AVCodecID   codec_id, const AVCodec *(*find_codec_func)(AVCodecID id),
-                         AVRational *timeBase                                    = nullptr,
+    int init_by_codec_id(AVCodecID codec_id, const AVCodec *(*find_codec_func)(AVCodecID id), AVRational *timeBase = nullptr,
                          std::function<void(AVCodecContext *)> setExtraParameter = nullptr)
     {
         codec = find_codec_func(codec_id);
@@ -862,8 +857,7 @@ private:
     }
 
     int init_by_codec_name(const char *codecName, const AVCodec *(*find_codec_func)(const char *codecName),
-                           AVRational *timeBase                                    = nullptr,
-                           std::function<void(AVCodecContext *)> setExtraParameter = nullptr)
+                           AVRational *timeBase = nullptr, std::function<void(AVCodecContext *)> setExtraParameter = nullptr)
     {
         codec = find_codec_func(codecName);
         if (!codec)
@@ -899,8 +893,7 @@ public:
             sws_freeContext(mSwsContext);
         mSwsContext = nullptr;
     }
-    int init(int srcW, int srcH, enum AVPixelFormat srcFormat, int dstW, int dstH, enum AVPixelFormat dstFormat,
-             int flags = 0)
+    int init(int srcW, int srcH, enum AVPixelFormat srcFormat, int dstW, int dstH, enum AVPixelFormat dstFormat, int flags = 0)
     {
         if (isInit() && srcW == mSrcWidth && srcH == mSrcHeight && srcFormat == mSrcFormat && dstW == mDstWidth
             && dstH == mDstHeight && dstFormat == mDstFormat && flags == mScaleFlags)
@@ -958,8 +951,8 @@ public:
     int init(const AVChannelLayout *out_ch_layout, enum AVSampleFormat out_sample_fmt, int out_sample_rate,
              const AVChannelLayout *in_ch_layout, enum AVSampleFormat in_sample_fmt, int in_sample_rate)
     {
-        int ret = swr_alloc_set_opts2(&swrContext, out_ch_layout, out_sample_fmt, out_sample_rate, in_ch_layout,
-                                      in_sample_fmt, in_sample_rate, 0, nullptr);
+        int ret = swr_alloc_set_opts2(&swrContext, out_ch_layout, out_sample_fmt, out_sample_rate, in_ch_layout, in_sample_fmt,
+                                      in_sample_rate, 0, nullptr);
         if (ret < 0)
         {
             myffmpeg_dbg("alloc fail: %s\n", ffmpeg_make_err_string(ret));

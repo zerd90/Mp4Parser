@@ -830,43 +830,44 @@ void Mp4ParserApp::updateChunksTable()
         chunkTable.addColumn("Start PTS(ms)");
         chunkTable.addColumn("Delta(ms)");
         chunkTable.addColumn("Avg Bitrate(Kbps)");
-        chunkTable.setDataCallbacks([i]() { return getMp4DataShare().tracksInfo[i].mediaInfo->chunksInfo.size(); },
-                                    [i](size_t rowIdx, size_t colIdx) -> string
-                                    {
-                                        if (rowIdx >= getMp4DataShare().tracksInfo[i].mediaInfo->chunksInfo.size())
-                                            return "";
-                                        auto &cur_item = getMp4DataShare().tracksInfo[i].mediaInfo->chunksInfo[rowIdx];
-                                        switch (colIdx)
-                                        {
-                                            case 0:
-                                                return to_string(cur_item.chunkIdx);
-                                            case 1:
-                                                if (getAppConfigure().needShowInHex)
-                                                    return Log::format("{#x}", cur_item.chunkOffset);
-                                                else
-                                                    return to_string(cur_item.chunkOffset);
-                                            case 2:
-                                                if (getAppConfigure().needShowInHex)
-                                                    return Log::format("{#x}", cur_item.chunkSize);
-                                                else
-                                                    return to_string(cur_item.chunkSize);
-                                            case 3:
-                                                return to_string(cur_item.sampleStartIdx);
-                                            case 4:
-                                                return to_string(cur_item.sampleCount);
-                                            case 5:
-                                                return to_string(cur_item.startPtsMs);
-                                            case 6:
-                                                return to_string(cur_item.durationMs);
-                                            case 7:
-                                                return to_string(cur_item.avgBitrateBps / 1024.f);
-                                            default:
-                                                return "";
-                                        }
-                                    },
-                                    std::bind(chunkTableClickable, ref(getMp4DataShare().tracksInfo[i].mediaInfo->chunksInfo),
-                                              std::placeholders::_1, std::placeholders::_2),
-                                    std::bind(&Mp4ParserApp::chunkTableClicked, this, i, std::placeholders::_1, std::placeholders::_2));
+        chunkTable.setDataCallbacks(
+            [i]() { return getMp4DataShare().tracksInfo[i].mediaInfo->chunksInfo.size(); },
+            [i](size_t rowIdx, size_t colIdx) -> string
+            {
+                if (rowIdx >= getMp4DataShare().tracksInfo[i].mediaInfo->chunksInfo.size())
+                    return "";
+                auto &cur_item = getMp4DataShare().tracksInfo[i].mediaInfo->chunksInfo[rowIdx];
+                switch (colIdx)
+                {
+                    case 0:
+                        return to_string(cur_item.chunkIdx);
+                    case 1:
+                        if (getAppConfigure().needShowInHex)
+                            return Log::format("{#x}", cur_item.chunkOffset);
+                        else
+                            return to_string(cur_item.chunkOffset);
+                    case 2:
+                        if (getAppConfigure().needShowInHex)
+                            return Log::format("{#x}", cur_item.chunkSize);
+                        else
+                            return to_string(cur_item.chunkSize);
+                    case 3:
+                        return to_string(cur_item.sampleStartIdx);
+                    case 4:
+                        return to_string(cur_item.sampleCount);
+                    case 5:
+                        return to_string(cur_item.startPtsMs);
+                    case 6:
+                        return to_string(cur_item.durationMs);
+                    case 7:
+                        return to_string(cur_item.avgBitrateBps / 1024.f);
+                    default:
+                        return "";
+                }
+            },
+            std::bind(chunkTableClickable, ref(getMp4DataShare().tracksInfo[i].mediaInfo->chunksInfo), std::placeholders::_1,
+                      std::placeholders::_2),
+            std::bind(&Mp4ParserApp::chunkTableClicked, this, i, std::placeholders::_1, std::placeholders::_2));
     }
 }
 

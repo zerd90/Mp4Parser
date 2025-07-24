@@ -4,11 +4,11 @@
 class AppConfigures
 {
 public:
-    bool        needShowInHex    = true; // show size/offset in hex
-    bool        logarithmicAxis  = false;
-    int         hardwareDecode   = -1; // -1 - off; 0 - auto; >0 - enum AVHWDeviceType
-    bool        needShowDebugLog = false;
-    bool        showWrappedData = false; // show wrapped data in binary viewer, append SPS/PPS/VPS, transform start code
+    bool needShowInHex    = true; // show size/offset in hex
+    bool logarithmicAxis  = false;
+    int  hardwareDecode   = -1; // -1 - off; 0 - auto; >0 - enum AVHWDeviceType
+    bool needShowDebugLog = false;
+    bool showWrappedData  = false; // show wrapped data in binary viewer, append SPS/PPS/VPS, transform start code
 
     // not saving
     bool needShowFrameInfo = true;
