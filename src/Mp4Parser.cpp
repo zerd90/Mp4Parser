@@ -877,7 +877,9 @@ void Mp4ParserApp::showMp4InfoTab()
 
 Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
 {
+#if defined(_DEBUG) || defined(DEBUG)
     openDebugWindow();
+#endif
     Log::set_log_level(LOG_LEVEL_INFO);
 
     enableStatusBar(true);
