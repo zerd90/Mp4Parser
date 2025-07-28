@@ -382,7 +382,7 @@ void Mp4ParseData::run()
 
 void Mp4ParseData::init(const std::function<void(MP4_LOG_LEVEL_E level, const char *str)> &logCallback)
 {
-    setMp4ParseLogCallback([&logCallback](MP4_LOG_LEVEL_E level, const char *msg) { logCallback(level, msg); });
+    setMp4ParseLogCallback([logCallback](MP4_LOG_LEVEL_E level, const char *msg) { logCallback(level, msg); });
 }
 
 void Mp4ParseData::starting()
