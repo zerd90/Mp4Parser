@@ -49,7 +49,6 @@ public:
 
 private:
     void updateData();
-    int  updateClickHistogram();
     bool show_hist();
     void updateFrameInfo(MyAVFrame &frame);
     void showFrameInfo();

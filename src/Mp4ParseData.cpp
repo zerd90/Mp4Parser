@@ -34,7 +34,7 @@ Mp4ParseData &getMp4DataShare()
 
 int Mp4ParseData::startParse(PARSE_OPERATION_E op)
 {
-    operation = op;
+    mOperation = op;
     return start();
 }
 
@@ -183,8 +183,8 @@ void Mp4ParseData::updateData()
 
     tracksInfo.clear();
     mVideoDecoders.clear();
-    mTracksMaxSampleSize.clear();
-    mVideoTracksIdx.clear();
+    tracksMaxSampleSize.clear();
+    videoTracksIdx.clear();
 
     curFilePath = localToUtf8(mParser->getFilePath());
 
@@ -220,7 +220,7 @@ void Mp4ParseData::updateData()
     {
         if (TRACK_TYPE_VIDEO == tracksInfo[i].trackType)
         {
-            mVideoTracksIdx.push_back(i);
+            videoTracksIdx.push_back(i);
         }
     }
 
@@ -235,10 +235,10 @@ void Mp4ParseData::updateData()
                 maxSampleSize = sample.sampleSize;
             }
         }
-        mTracksMaxSampleSize.push_back(maxSampleSize);
+        tracksMaxSampleSize.push_back(maxSampleSize);
     }
 
-    if (mVideoTracksIdx.empty())
+    if (videoTracksIdx.empty())
         return;
 
     recreateDecoder();
@@ -247,7 +247,7 @@ void Mp4ParseData::updateData()
 void Mp4ParseData::recreateDecoder()
 {
     mVideoDecoders.clear();
-    for (auto &trackIdx : mVideoTracksIdx)
+    for (auto &trackIdx : videoTracksIdx)
     {
         AVCodecID codecID;
         auto      codecType = mp4GetCodecType(tracksInfo[trackIdx].mediaInfo->codecCode);
@@ -315,7 +315,7 @@ void Mp4ParseData::recreateDecoder()
 
 void Mp4ParseData::run()
 {
-    if (OPERATION_PARSE_FILE == operation)
+    if (OPERATION_PARSE_FILE == mOperation)
     {
         string filePath = utf8ToLocal(toParseFilePath);
         mParser->parse(filePath);
@@ -348,9 +348,9 @@ void Mp4ParseData::run()
         if (!dataAvailable)
             dataAvailable = true;
     }
-    else if (OPERATION_PARSE_FRAME_TYPE == operation)
+    else if (OPERATION_PARSE_FRAME_TYPE == mOperation)
     {
-        parsingFrameCount = 0;
+        mParsingFrameCount = 0;
         for (auto &track : tracksInfo)
         {
             if (track.trackType != TRACK_TYPE_VIDEO)
@@ -362,7 +362,7 @@ void Mp4ParseData::run()
 
             for (uint32_t parsingFrameIdx = 0; parsingFrameIdx < track.mediaInfo->samplesInfo.size(); parsingFrameIdx++)
             {
-                if (!isContinue)
+                if (!mIsContinue)
                     return;
 
                 track.mediaInfo->samplesInfo[parsingFrameIdx].frameType =
@@ -374,7 +374,7 @@ void Mp4ParseData::run()
                     onFrameParsed(track.trakIndex, parsingFrameIdx, track.mediaInfo->samplesInfo[parsingFrameIdx].frameType);
                 }
                 Z_DBG("get frame {} type {}\n", parsingFrameIdx, track.mediaInfo->samplesInfo[parsingFrameIdx].frameType);
-                parsingFrameCount++;
+                mParsingFrameCount++;
             }
         }
     }
@@ -387,8 +387,8 @@ void Mp4ParseData::init(const std::function<void(MP4_LOG_LEVEL_E level, const ch
 
 void Mp4ParseData::starting()
 {
-    isContinue = true;
-    if (OPERATION_PARSE_FILE == operation)
+    mIsContinue = true;
+    if (OPERATION_PARSE_FILE == mOperation)
         newDataAvailable = false;
 }
 
@@ -399,9 +399,28 @@ float Mp4ParseData::getParseFileProgress()
 
 float Mp4ParseData::getParseFrameTypeProgress()
 {
-    return (float)parsingFrameCount / (float)mTotalVideoFrameCount;
+    return (float)mParsingFrameCount / (float)mTotalVideoFrameCount;
 }
 void Mp4ParseData::stopping()
 {
-    isContinue = false;
+    mIsContinue = false;
+}
+
+void Mp4ParseData::clear()
+{
+    if (isRunning())
+        stop();
+
+    mParser->clear();
+    mVideoDecoders.clear();
+    tracksInfo.clear();
+    mFmtTransition.clear();
+
+    tracksMaxSampleSize.clear();
+    videoTracksIdx.clear();
+
+    mTotalVideoFrameCount = 0;
+    mParsingFrameCount     = 0;
+    newDataAvailable      = false;
+    dataAvailable         = false;
 }

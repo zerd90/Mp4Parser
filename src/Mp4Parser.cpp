@@ -935,6 +935,30 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
                 }
             });
 
+    addMenu({"Menu", "Reset"},
+            [this]()
+            {
+                getMp4DataShare().clear();
+
+                mToParseFile.clear();
+                cur_box_select      = nullptr;
+                cur_track_select    = -1;
+                m_box_num           = 0;
+                mSomeTreeNodeOpened = false;
+                mVirtFileBox.reset();
+                mAllBoxes.clear();
+                mBoxInfoTables.clear();
+                mSampleDataTables.clear();
+                mChunkDataTables.clear();
+                mVideoStreamInfo.resetData();
+
+                mBinaryData.buffer.reset();
+                mBinaryData.dataSize   = 0;
+                mBinaryData.bufferSize = 0;
+                setTitle(mApplicationName);
+                setStatus("");
+            });
+
     addMenu({"Settings", "Show Offset/Size in Hex"}, nullptr, &getAppConfigure().needShowInHex);
     addMenu({"Settings", "Binary View"}, nullptr, &getAppConfigure().showBoxBinaryData);
     addMenu({"Settings", "Logarithmic Axis"}, nullptr, &getAppConfigure().logarithmicAxis);
@@ -1180,7 +1204,7 @@ bool Mp4ParserApp::renderUI()
         ImGui::EndTabItem();
     }
 
-    if (!getMp4DataShare().mVideoTracksIdx.empty() && ImGui::BeginTabItem("StreamInfo"))
+    if (!getMp4DataShare().videoTracksIdx.empty() && ImGui::BeginTabItem("StreamInfo"))
     {
         mVideoStreamInfo.show();
 
@@ -1360,7 +1384,7 @@ void Mp4ParserApp::resetFileInfo()
     updateSamplesTable();
     updateChunksTable();
 
-    if (!getMp4DataShare().mVideoTracksIdx.empty())
+    if (!getMp4DataShare().videoTracksIdx.empty())
     {
         mVideoStreamInfo.resetData();
     }

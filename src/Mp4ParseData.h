@@ -52,12 +52,13 @@ public:
     void                       init(const std::function<void(MP4_LOG_LEVEL_E level, const char *str)> &logCallback);
     std::shared_ptr<Mp4Parser> getParser() { return mParser; }
     int                        startParse(PARSE_OPERATION_E op);
-    PARSE_OPERATION_E          getCurrentOperation() const { return operation; }
+    PARSE_OPERATION_E          getCurrentOperation() const { return mOperation; }
     int   decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats);
     void  updateData();
     float getParseFileProgress();
     float getParseFrameTypeProgress();
     void  recreateDecoder();
+    void  clear();
 
 private:
     virtual void run() override;
@@ -70,21 +71,23 @@ public:
     bool        dataAvailable    = false;
     bool        newDataAvailable = false;
 
-    std::map<int /* trackIdx */, MyAVCodecContext> mVideoDecoders;
-    MySwsContext                                   mFmtTransition;
-    std::vector<uint64_t>                          mTracksMaxSampleSize;
-    std::vector<uint32_t>                          mVideoTracksIdx;
+    std::vector<uint64_t> tracksMaxSampleSize;
+    std::vector<uint32_t> videoTracksIdx;
 
     std::vector<Mp4TrackInfo> tracksInfo;
 
     std::function<void(unsigned int track_id, int frame_idx, H26X_FRAME_TYPE_E frame_type)> onFrameParsed;
 
 private:
-    PARSE_OPERATION_E          operation;
-    std::shared_ptr<Mp4Parser> mParser               = createMp4Parser();
-    volatile uint64_t          parsingFrameCount     = 0;
-    uint64_t                   mTotalVideoFrameCount = 0;
-    volatile bool              isContinue            = false;
+    PARSE_OPERATION_E          mOperation = OPERATION_PARSE_FILE;
+    std::shared_ptr<Mp4Parser> mParser    = createMp4Parser();
+
+    std::map<int /* trackIdx */, MyAVCodecContext> mVideoDecoders;
+    MySwsContext                                   mFmtTransition;
+
+    volatile uint64_t mParsingFrameCount    = 0;
+    uint64_t          mTotalVideoFrameCount = 0;
+    volatile bool     mIsContinue           = false;
 };
 
 Mp4ParseData &getMp4DataShare();

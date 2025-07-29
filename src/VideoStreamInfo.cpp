@@ -117,11 +117,11 @@ bool VideoStreamInfo::show_hist()
         ImVec2            colSize;
         if (getAppConfigure().logarithmicAxis)
             colSize = ImVec2(histColWidth, logf((float)frameSize) * histDrawHeightMax
-                                               / logf((float)getMp4DataShare().mTracksMaxSampleSize[mCurSelectTrack])
+                                               / logf((float)getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack])
                                                * mHistogramHeightScale);
         else
             colSize = ImVec2(histColWidth, frameSize * histDrawHeightMax
-                                               / getMp4DataShare().mTracksMaxSampleSize[mCurSelectTrack]
+                                               / getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack]
                                                * mHistogramHeightScale);
         ImVec2 colPos = ImVec2((frameIdx - mHistogramScrollPos) * histColWidth, histDrawHeightMax - colSize.y);
         colPos += mHistogramPos;
@@ -216,7 +216,7 @@ bool VideoStreamInfo::show()
     mSideBarPos = mWinPos + ImVec2{ITEM_SPACING, ITEM_SPACING};
     mSideBarWidth =
         mButtonSize.x
-        + ImGui::CalcTextSize(std::to_string(getMp4DataShare().mTracksMaxSampleSize[mCurSelectTrack]).c_str()).x
+        + ImGui::CalcTextSize(std::to_string(getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack]).c_str()).x
         + ITEM_SPACING;
 
     mBottomBarHeight = mButtonSize.y + textHeight + ITEM_SPACING * 3;
@@ -243,7 +243,7 @@ bool VideoStreamInfo::show()
             if (mHistogramHeightScale > HIST_H_MAX_SCALE)
                 mHistogramHeightScale = HIST_H_MAX_SCALE;
             mHistogramMaxSize =
-                (uint64_t)(getMp4DataShare().mTracksMaxSampleSize[mCurSelectTrack] / mHistogramHeightScale);
+                (uint64_t)(getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack] / mHistogramHeightScale);
         }
     }
     mButtonSize = ImGui::GetItemRectSize();
@@ -259,7 +259,7 @@ bool VideoStreamInfo::show()
             if (mHistogramHeightScale < HIST_H_MIN_SCALE)
                 mHistogramHeightScale = HIST_H_MIN_SCALE;
             mHistogramMaxSize =
-                (uint64_t)(getMp4DataShare().mTracksMaxSampleSize[mCurSelectTrack] / mHistogramHeightScale);
+                (uint64_t)(getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack] / mHistogramHeightScale);
         }
     }
 
@@ -269,7 +269,7 @@ bool VideoStreamInfo::show()
     if (mHeightScaleResetButton.isClicked())
     {
         mHistogramHeightScale = 1;
-        mHistogramMaxSize     = getMp4DataShare().mTracksMaxSampleSize[mCurSelectTrack];
+        mHistogramMaxSize     = getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack];
     }
 
     ImVec2 textPos = mHeightScaleUpButton.itemPos()
@@ -355,12 +355,12 @@ bool VideoStreamInfo::show()
                               - ImVec2(mHistMoveRightButton.itemSize().x + ITEM_SPACING, 0));
     mHistMoveRightButton.showDisabled(mHistogramEndIdx >= mTotalVideoFrameCount - 1);
 
-    if (getMp4DataShare().mVideoTracksIdx.size() > 1)
+    if (getMp4DataShare().videoTracksIdx.size() > 1)
     {
         if (ImGui::BeginPopupContextWindow("Select Track", ImGuiPopupFlags_MouseButtonRight))
         {
             int newSelectTrackIdx = -1;
-            for (auto &trackIdx : getMp4DataShare().mVideoTracksIdx)
+            for (auto &trackIdx : getMp4DataShare().videoTracksIdx)
             {
                 string trackName = "Track " + std::to_string(trackIdx);
                 if (ImGui::MenuItem(trackName.c_str(), nullptr, mCurSelectTrack == trackIdx))
@@ -391,9 +391,9 @@ void VideoStreamInfo::resetData()
 {
     mCurSelectTrack = 0;
     mCurSelectFrame.clear();
-    if (!getMp4DataShare().mVideoTracksIdx.empty())
+    if (!getMp4DataShare().videoTracksIdx.empty())
     {
-        for (auto &trackIdx : getMp4DataShare().mVideoTracksIdx)
+        for (auto &trackIdx : getMp4DataShare().videoTracksIdx)
         {
             mCurSelectFrame[trackIdx] = 0;
         }
@@ -407,14 +407,14 @@ void VideoStreamInfo::updateData()
     mImageDisplay.clear();
     mImageDisplay.close();
 
-    if (getMp4DataShare().mVideoTracksIdx.empty())
+    if (getMp4DataShare().videoTracksIdx.empty())
         return;
 
     auto &samples = getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->samplesInfo;
 
     mTotalVideoFrameCount = (uint32_t)samples.size();
 
-    mHistogramMaxSize = getMp4DataShare().mTracksMaxSampleSize[mCurSelectTrack];
+    mHistogramMaxSize = getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack];
     updateFrameTexture();
 }
 
