@@ -233,65 +233,72 @@ void Mp4ParserApp::ShowTreeNode(BoxInfo *cur_box)
 void Mp4ParserApp::ShowBoxesTreeView()
 {
     mSomeTreeNodeOpened = false;
-    if (ImGui::BeginTabItem("Boxes"))
+    if (!ImGui::BeginTabItem("Boxes"))
+        return;
+
+    ImGui::BeginChild("Boxes Tree");
+
+    if (getMp4DataShare().dataAvailable)
     {
-        if (getMp4DataShare().dataAvailable)
-        {
-            ShowTreeNode(mVirtFileBox.get());
-        }
-
-        if (m_focus_on != FOCUS_ON_BOXES)
-        {
-            Z_INFO("focus on boxes\n");
-            m_focus_changed = true;
-            m_focus_on      = FOCUS_ON_BOXES;
-        }
-
-        ImGui::EndTabItem();
+        ShowTreeNode(mVirtFileBox.get());
     }
+
+    if (m_focus_on != FOCUS_ON_BOXES)
+    {
+        Z_INFO("focus on boxes\n");
+        m_focus_changed = true;
+        m_focus_on      = FOCUS_ON_BOXES;
+    }
+    ImGui::EndChild();
+
+    ImGui::EndTabItem();
 }
 
 void Mp4ParserApp::ShowTracksTreeView()
 {
-    if (ImGui::BeginTabItem("Tracks"))
+    if (!ImGui::BeginTabItem("Tracks"))
+        return;
+
+    ImGui::BeginChild("Tracks Tree");
+
+    if (getMp4DataShare().dataAvailable)
     {
-        if (getMp4DataShare().dataAvailable)
+        int tree_node_id = 0;
+
+        int node_flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_SpanAvailWidth
+                       | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+
+        for (size_t idx = 0; idx < getMp4DataShare().tracksInfo.size(); idx++)
         {
-            int tree_node_id = 0;
+            if (cur_track_select == (int)idx)
+                node_flags |= ImGuiTreeNodeFlags_Selected;
+            else
+                node_flags &= (~ImGuiTreeNodeFlags_Selected);
 
-            int node_flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick
-                           | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-
-            for (size_t idx = 0; idx < getMp4DataShare().tracksInfo.size(); idx++)
+            ImGui::TreeNodeEx((void *)(intptr_t)tree_node_id, node_flags, "%s",
+                              mp4GetTrackTypeName(getMp4DataShare().tracksInfo[idx].trackType).c_str());
+            tree_node_id++;
+            if (isItemClicked())
             {
-                if (cur_track_select == (int)idx)
-                    node_flags |= ImGuiTreeNodeFlags_Selected;
-                else
-                    node_flags &= (~ImGuiTreeNodeFlags_Selected);
-
-                ImGui::TreeNodeEx((void *)(intptr_t)tree_node_id, node_flags, "%s",
-                                  mp4GetTrackTypeName(getMp4DataShare().tracksInfo[idx].trackType).c_str());
-                tree_node_id++;
-                if (isItemClicked())
+                if (cur_track_select != (int)idx)
                 {
-                    if (cur_track_select != (int)idx)
-                    {
-                        m_focus_changed  = true;
-                        cur_track_select = (int)idx;
-                    }
+                    m_focus_changed  = true;
+                    cur_track_select = (int)idx;
                 }
             }
         }
-
-        if (m_focus_on != FOCUS_ON_TRACKS)
-        {
-            m_focus_changed = true;
-            m_focus_on      = FOCUS_ON_TRACKS;
-            Z_INFO("focus on tracks\n");
-        }
-
-        ImGui::EndTabItem();
     }
+
+    if (m_focus_on != FOCUS_ON_TRACKS)
+    {
+        m_focus_changed = true;
+        m_focus_on      = FOCUS_ON_TRACKS;
+        Z_INFO("focus on tracks\n");
+    }
+
+    ImGui::EndChild();
+
+    ImGui::EndTabItem();
 }
 
 void Mp4ParserApp::set_all_open_state(BoxInfo *pBox, bool isClose)
@@ -846,12 +853,32 @@ void Mp4ParserApp::updateChunksTable()
 
 void Mp4ParserApp::showMp4InfoTab()
 {
-    mDockId = ImGui::GetID("Mp4InfoDockSpace");
-    ImGui::DockSpace(mDockId, {0, 0}, mDockSpaceFlags);
 
-    splitDock(mDockId, ImGuiDir_Left, 0.3f, &mBoxTreeDock, &mBoxInfoDock);
+    do
+    {
+        if (mDockId != 0)
+            break;
 
-    ImGui::SetNextWindowDockID(mBoxTreeDock, ImGuiCond_FirstUseEver);
+        mDockId         = ImGui::GetID("Mp4InfoDockSpace");
+        ImGuiID dock_id = mDockId;
+
+        if (ImGui::DockBuilderGetNode(dock_id))
+            break;
+
+        ImGui::DockBuilderAddNode(dock_id, ImGuiDockNodeFlags_DockSpace);
+        ImGui::DockBuilderSetNodeSize(dock_id, ImGui::GetMainViewport()->Size);
+
+        ImGuiID dock_id_left = ImGui::DockBuilderSplitNode(dock_id, ImGuiDir_Left, 0.3f, nullptr, &dock_id);
+
+        ImGui::DockBuilderDockWindow("Leading", dock_id_left);
+        ImGui::DockBuilderDockWindow("Information", dock_id);
+
+        ImGui::DockBuilderFinish(mDockId);
+
+    } while (0);
+
+    ImGui::DockSpace(mDockId, {0, 0}, ImGuiDockNodeFlags_AutoHideTabBar | ImGuiDockNodeFlags_NoUndocking);
+
     ImGui::Begin("Leading");
     ImGui::BeginTabBar("Leadings", ImGuiTabBarFlags_FittingPolicyResizeDown);
 
@@ -863,7 +890,6 @@ void Mp4ParserApp::showMp4InfoTab()
     ImGui::EndTabBar();
     ImGui::End();
 
-    ImGui::SetNextWindowDockID(mBoxInfoDock, ImGuiCond_FirstUseEver);
     mInfoWindow.show();
 
     static int start_phase = 1;
@@ -1204,7 +1230,7 @@ bool Mp4ParserApp::renderUI()
         ImGui::EndTabItem();
     }
 
-    if (!getMp4DataShare().videoTracksIdx.empty() && ImGui::BeginTabItem("StreamInfo"))
+    if (!getMp4DataShare().videoTracksIdx.empty() && ImGui::BeginTabItem("Stream Info"))
     {
         mVideoStreamInfo.show();
 

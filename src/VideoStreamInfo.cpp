@@ -4,6 +4,7 @@
 
 #include "Mp4Parser.h"
 #include "AppConfigure.h"
+#include <logger.h>
 
 using std::string;
 
@@ -25,8 +26,7 @@ void VideoStreamInfo::updateFrameTexture()
 {
     MyAVFrame frame;
 
-    if (getMp4DataShare().decodeFrameAt(mCurSelectTrack, mCurSelectFrame[mCurSelectTrack], frame, {AV_PIX_FMT_RGBA})
-        < 0)
+    if (getMp4DataShare().decodeFrameAt(mCurSelectTrack, mCurSelectFrame[mCurSelectTrack], frame, {AV_PIX_FMT_RGBA}) < 0)
         return;
 
     updateFrameInfo(frame);
@@ -98,8 +98,8 @@ bool VideoStreamInfo::show_hist()
     ImRect  scrollbar_rect = ImGui::GetWindowScrollbarRect(parent_window, (ImGuiAxis)ImGuiAxis_X);
     ImGuiID scrollbar_id   = ImGui::GetWindowScrollbarID(parent_window, (ImGuiAxis)ImGuiAxis_X);
     mHistogramScrollPos *= 1000;
-    ImGui::ScrollbarEx(scrollbar_rect, scrollbar_id, (ImGuiAxis)ImGuiAxis_X, &mHistogramScrollPos, scroll_visible_size,
-                       scrollMax, ImDrawFlags_RoundCornersAll);
+    ImGui::ScrollbarEx(scrollbar_rect, scrollbar_id, (ImGuiAxis)ImGuiAxis_X, &mHistogramScrollPos, scroll_visible_size, scrollMax,
+                       ImDrawFlags_RoundCornersAll);
     mHistogramScrollPos /= 1000;
 
     parent_window->ScrollbarSizes.y = 0.0f; // Restore modified value
@@ -120,8 +120,7 @@ bool VideoStreamInfo::show_hist()
                                                / logf((float)getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack])
                                                * mHistogramHeightScale);
         else
-            colSize = ImVec2(histColWidth, frameSize * histDrawHeightMax
-                                               / getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack]
+            colSize = ImVec2(histColWidth, frameSize * histDrawHeightMax / getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack]
                                                * mHistogramHeightScale);
         ImVec2 colPos = ImVec2((frameIdx - mHistogramScrollPos) * histColWidth, histDrawHeightMax - colSize.y);
         colPos += mHistogramPos;
@@ -185,17 +184,31 @@ bool VideoStreamInfo::show_hist()
 
 bool VideoStreamInfo::show()
 {
-    if (getAppConfigure().needShowFrameInfo)
+    do
     {
-        ImGui::Begin("Frame Info", &getAppConfigure().needShowFrameInfo);
-        showFrameInfo();
-        ImGui::End();
-    }
+        if (mDockId != 0)
+            break;
 
-    mDockId = ImGui::GetID("StreamInfoDockSpace");
-    // ImGui::DockSpace(mDockId, {0, 0}, ImGuiDockNodeFlags_AutoHideTabBar);
+        mDockId         = ImGui::GetID("StreamInfoDockSpace");
+        ImGuiID dock_id = mDockId;
 
-    // ImGui::SetNextWindowDockID(mDockId, ImGuiCond_Always);
+        if (ImGui::DockBuilderGetNode(dock_id)) // not fist open
+            break;
+
+        ImGui::DockBuilderRemoveNode(dock_id);
+        ImGui::DockBuilderAddNode(dock_id, ImGuiDockNodeFlags_DockSpace);
+        ImGui::DockBuilderSetNodeSize(dock_id, ImGui::GetMainViewport()->Size);
+
+        ImGuiID dock_id_top       = ImGui::DockBuilderSplitNode(dock_id, ImGuiDir_Up, 0.4f, nullptr, &dock_id);
+        ImGuiID dock_id_down_left = ImGui::DockBuilderSplitNode(dock_id, ImGuiDir_Left, 0.75f, nullptr, &dock_id);
+
+        ImGui::DockBuilderDockWindow("Stream Hist", dock_id_top);
+        ImGui::DockBuilderDockWindow("Frame", dock_id_down_left);
+        ImGui::DockBuilderDockWindow("Frame Info", dock_id);
+
+        ImGui::DockBuilderFinish(mDockId);
+    } while (0);
+    ImGui::DockSpace(mDockId, ImVec2(0, 0), ImGuiDockNodeFlags_AutoHideTabBar);
 
     ImVec2 itemSpacing = ImGui::GetStyle().ItemSpacing;
     float  textHeight  = ImGui::GetTextLineHeight();
@@ -213,17 +226,17 @@ bool VideoStreamInfo::show()
     mHistMoveLeftButton.setItemSize({buttonSize, buttonSize});
     mHistMoveRightButton.setItemSize({buttonSize, buttonSize});
 #define ITEM_SPACING (5)
-    mSideBarPos = mWinPos + ImVec2{ITEM_SPACING, ITEM_SPACING};
-    mSideBarWidth =
-        mButtonSize.x
-        + ImGui::CalcTextSize(std::to_string(getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack]).c_str()).x
-        + ITEM_SPACING;
+    mSideBarPos   = mWinPos + ImVec2{ITEM_SPACING, ITEM_SPACING};
+    mSideBarWidth = mButtonSize.x
+                  + ImGui::CalcTextSize(std::to_string(getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack]).c_str()).x
+                  + ITEM_SPACING;
 
     mBottomBarHeight = mButtonSize.y + textHeight + ITEM_SPACING * 3;
 
     mHistogramPos = mSideBarPos + ImVec2{mSideBarWidth + ITEM_SPACING, MAX(mButtonSize.y, textHeight) / 2};
 
-    ImGui::BeginChild("Stream Hist", ImVec2(0, 0), 0, ImGuiWindowFlags_NoScrollbar);
+    ImGui::Begin("Stream Hist", 0, ImGuiWindowFlags_NoScrollbar);
+    ImGui::BeginChild("Stream Hist Child", ImVec2(0, 0), 0, ImGuiWindowFlags_NoScrollbar);
 
     mWinSize = ImGui::GetWindowSize();
     mWinPos  = ImGui::GetWindowPos();
@@ -242,8 +255,7 @@ bool VideoStreamInfo::show()
             mHistogramHeightScale += 0.1f;
             if (mHistogramHeightScale > HIST_H_MAX_SCALE)
                 mHistogramHeightScale = HIST_H_MAX_SCALE;
-            mHistogramMaxSize =
-                (uint64_t)(getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack] / mHistogramHeightScale);
+            mHistogramMaxSize = (uint64_t)(getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack] / mHistogramHeightScale);
         }
     }
     mButtonSize = ImGui::GetItemRectSize();
@@ -258,8 +270,7 @@ bool VideoStreamInfo::show()
             mHistogramHeightScale -= 0.1f;
             if (mHistogramHeightScale < HIST_H_MIN_SCALE)
                 mHistogramHeightScale = HIST_H_MIN_SCALE;
-            mHistogramMaxSize =
-                (uint64_t)(getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack] / mHistogramHeightScale);
+            mHistogramMaxSize = (uint64_t)(getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack] / mHistogramHeightScale);
         }
     }
 
@@ -285,9 +296,8 @@ bool VideoStreamInfo::show()
 
     if (extraLines > 0)
     {
-        extraLines = MIN(2, extraLines);
-        float spacing =
-            (mHistogramSize.y - ImGui::GetStyle().ScrollbarSize - textHeight * (extraLines + 1)) / (extraLines + 1);
+        extraLines    = MIN(2, extraLines);
+        float spacing = (mHistogramSize.y - ImGui::GetStyle().ScrollbarSize - textHeight * (extraLines + 1)) / (extraLines + 1);
         for (int i = 0; i < extraLines; i++)
         {
             textPos.y -= (textHeight + spacing);
@@ -321,8 +331,7 @@ bool VideoStreamInfo::show()
         mHistogramWidthScale = 1.f;
     }
 
-    ImGui::SetCursorScreenPos(
-        ImVec2(mHistogramPos.x, mHistogramPos.y + mHistogramSize.y + textHeight + ITEM_SPACING * 2));
+    ImGui::SetCursorScreenPos(ImVec2(mHistogramPos.x, mHistogramPos.y + mHistogramSize.y + textHeight + ITEM_SPACING * 2));
     mWidthScaleDownButton.showDisabled(mHistogramWidthScale <= HIST_W_MIN_SCALE);
     if (mWidthScaleDownButton.isClicked())
     {
@@ -347,12 +356,10 @@ bool VideoStreamInfo::show()
         }
     }
 
-    ImGui::SetCursorScreenPos(mWidthScaleDownButton.itemPos()
-                              + ImVec2(mWidthScaleDownButton.itemSize().x + ITEM_SPACING, 0));
+    ImGui::SetCursorScreenPos(mWidthScaleDownButton.itemPos() + ImVec2(mWidthScaleDownButton.itemSize().x + ITEM_SPACING, 0));
     mHistMoveLeftButton.showDisabled(mHistogramStartIdx <= 0);
 
-    ImGui::SetCursorScreenPos(mWidthScaleUpButton.itemPos()
-                              - ImVec2(mHistMoveRightButton.itemSize().x + ITEM_SPACING, 0));
+    ImGui::SetCursorScreenPos(mWidthScaleUpButton.itemPos() - ImVec2(mHistMoveRightButton.itemSize().x + ITEM_SPACING, 0));
     mHistMoveRightButton.showDisabled(mHistogramEndIdx >= mTotalVideoFrameCount - 1);
 
     if (getMp4DataShare().videoTracksIdx.size() > 1)
@@ -378,11 +385,19 @@ bool VideoStreamInfo::show()
     }
 
     ImGui::EndChild();
+    ImGui::End();
 
     if (frameSelectChanged)
         updateFrameTexture();
 
     mImageDisplay.show();
+
+    if (getAppConfigure().needShowFrameInfo)
+    {
+        ImGui::Begin("Frame Info", &getAppConfigure().needShowFrameInfo);
+        showFrameInfo();
+        ImGui::End();
+    }
 
     return frameSelectChanged;
 }

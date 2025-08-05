@@ -147,11 +147,7 @@ private:
 
     bool m_metrics_show = false;
 
-    ImGuiID      mBoxTreeDock;
-    ImGuiID      mBoxInfoDock;
     IImGuiWindow mInfoWindow;
-
-    ImGuiDockNodeFlags mDockSpaceFlags = ImGuiDockNodeFlags_AutoHideTabBar;
 
     BoxInfo *cur_box_select   = nullptr;
     int      cur_track_select = -1;
