@@ -96,6 +96,17 @@ private:
     ImGuiButton mWidthScaleResetButton  = ImGuiButton("o##width scale");
     ImGuiButton mHistMoveLeftButton     = ImGuiButton("<");
     ImGuiButton mHistMoveRightButton    = ImGuiButton(">");
+
+    ImGuiButton mNextFrameButton = ImGuiButton(">##next frame");
+    ImGuiButton mPrevFrameButton = ImGuiButton("<##prev frame");
+    ImGuiButton mPlayButton      = ImGuiButton(">##play");
+    ImGuiButton mPauseButton     = ImGuiButton("||##pause");
+
+    bool mIsPlaying = false;
+
+    uint64_t       mLastMoveLeftTime  = 0;
+    uint64_t       mLastMoveRightTime = 0;
+    const uint64_t mMoveInterval      = 50;
 };
 
 class Mp4ParserApp : public ImGuiApplication
@@ -143,7 +154,9 @@ private:
 private:
     std::string mToParseFile;
 
-    ImGuiID mDockId = 0;
+    ImGuiID mDockId      = 0;
+    ImGuiID mDockIdLeft  = 0;
+    ImGuiID mDockIdRight = 0;
 
     bool m_metrics_show = false;
 
