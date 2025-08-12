@@ -44,12 +44,12 @@ public:
     virtual ~VideoStreamInfo();
     bool show();
     void resetData();
-    void updateFrameTexture();
+    void updateFrameTexture(bool updateBySeek);
     void updateFrameInfo(unsigned int trackIdx, uint32_t frameIdx, H26X_FRAME_TYPE_E frameType);
 
 private:
     void updateData();
-    bool show_hist();
+    bool show_hist(bool updateScroll);
     void updateFrameInfo(MyAVFrame &frame);
     void showFrameInfo();
 
@@ -102,7 +102,9 @@ private:
     ImGuiButton mPlayButton      = ImGuiButton(">##play");
     ImGuiButton mPauseButton     = ImGuiButton("||##pause");
 
-    bool mIsPlaying = false;
+    bool     mIsPlaying      = false;
+    uint64_t mLastPlayTimeMs = 0;
+    uint32_t mPlayIntervalMs = 50; // 20fps
 
     uint64_t       mLastMoveLeftTime  = 0;
     uint64_t       mLastMoveRightTime = 0;

@@ -48,7 +48,6 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
 
     auto &decoder = trackDecoder->second;
 
-    int        ret = 0;
     MyAVPacket packet;
 
     auto &samples = tracksInfo[trackIdx].mediaInfo->samplesInfo;
@@ -61,11 +60,29 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
         if (samples[seekFrameIdx].isKeyFrame)
             break;
     }
+    bool needSeek = false;
+    Z_INFO("lastDecodedFrameIdx=%d\n", mTracksDecodeStat[trackIdx].lastDecodedFrameIdx);
+    if (mTracksDecodeStat[trackIdx].lastDecodedFrameIdx < 0 || mTracksDecodeStat[trackIdx].lastDecodedFrameIdx >= frameIdx)
+    {
+        needSeek = true;
+    }
+    else
+    {
+        for (int64_t i = mTracksDecodeStat[trackIdx].lastDecodedFrameIdx; i <= frameIdx; i++)
+        {
+            if (samples[i].isKeyFrame)
+            {
+                needSeek = true;
+                break;
+            }
+        }
+    }
 
-    avcodec_flush_buffers(decoder.get());
-
-    mTracksDecodeStat[trackIdx].lastExtractFrameIdx = seekFrameIdx - 1;
-
+    if (needSeek)
+    {
+        avcodec_flush_buffers(decoder.get());
+        mTracksDecodeStat[trackIdx].lastExtractFrameIdx = seekFrameIdx - 1;
+    }
     while (1)
     {
         if (decodeOneFrame(trackIdx, frame) < 0)
@@ -120,7 +137,7 @@ int Mp4ParseData::sendPacketToDecoder(uint32_t trackIdx, uint32_t frameIdx)
     }
     mTracksDecodeStat[trackIdx].lastExtractFrameIdx = frameIdx;
 
-    printf("send packet pts %d\n", packet->pts);
+    printf("send packet pts %" PRId64 "\n", packet->pts);
 
     return 0;
 }
@@ -146,8 +163,7 @@ int Mp4ParseData::decodeOneFrame(uint32_t trackIdx, MyAVFrame &frame)
         ret = decoder.receive_frame(frame);
         if (ret == 0)
         {
-            printf("get frame pts %d\n", frame->pts);
-
+            printf("get frame pts %" PRId64 "\n", frame->pts);
             break;
         }
         else if (ret < 0)
@@ -171,13 +187,13 @@ int Mp4ParseData::decodeOneFrame(uint32_t trackIdx, MyAVFrame &frame)
         }
     }
 
-    for (auto &sample : samples)
+    auto frm = std::find_if(samples.begin(), samples.end(),
+                            [&frame](const Mp4SampleItem &sample) { return (int64_t)sample.ptsMs == frame->pts; });
+    if (frm == samples.end())
     {
-        if ((int64_t)sample.ptsMs == frame->pts)
-        {
-            trackDecodeInfo.lastDecodedFrameIdx = sample.sampleIdx;
-        }
+        return -1;
     }
+    trackDecodeInfo.lastDecodedFrameIdx = frm->sampleIdx;
 
     return 0;
 }
@@ -258,7 +274,6 @@ int Mp4ParseData::decodeNextFrame(uint32_t trackIdx, MyAVFrame &frame, const std
     if (trackDecoder == mVideoDecoders.end())
         return -1;
 
-    auto &decoder = trackDecoder->second;
     auto &samples = tracksInfo[trackIdx].mediaInfo->samplesInfo;
 
     auto &trackDecodeInfo = it->second;
@@ -269,66 +284,14 @@ int Mp4ParseData::decodeNextFrame(uint32_t trackIdx, MyAVFrame &frame, const std
         return -1;
     }
 
-    uint32_t targetFrameIdx  = (uint32_t)(trackDecodeInfo.lastDecodedFrameIdx + 1);
-    uint32_t extractFrameIdx = (uint32_t)(trackDecodeInfo.lastExtractFrameIdx + 1);
-
     MyAVPacket packet;
-    int        ret = 0;
 
-    while (1)
+    if (decodeOneFrame(trackIdx, frame) < 0)
     {
-        while (1)
-        {
-            frame.clear();
-            ret = decoder.receive_frame(frame);
-            if (ret < 0)
-            {
-                if (AVERROR_EOF == ret || AVERROR(EAGAIN) == ret)
-                {
-                    break;
-                }
-                else
-                {
-                    Z_ERR("err {}\n", ffmpeg_make_err_string(ret));
-                    return -1;
-                }
-            }
-            break;
-        }
-        if (ret == 0)
-        {
-            break;
-        }
-
-        packet.clear();
-        Mp4VideoFrame videoSample;
-        ret = mParser->getVideoSample(trackIdx, extractFrameIdx, videoSample);
-        if (ret < 0)
-        {
-            Z_ERR("err {}\n", ret);
-            return -1;
-        }
-        packet.setBuffer(videoSample.sampleData.get(), (int)videoSample.dataSize);
-        packet->pts = videoSample.ptsMs;
-        packet->dts = videoSample.dtsMs;
-        ret         = decoder.send_packet(packet);
-        if (ret < 0)
-        {
-            Z_ERR("send_packet fail: {}\n", ffmpeg_make_err_string(ret));
-            return -1;
-        }
-        trackDecodeInfo.lastExtractFrameIdx = extractFrameIdx;
-
-        extractFrameIdx++;
-        if (extractFrameIdx == samples.size())
-        {
-            ret = decoder.send_packet(nullptr);
-        }
+        return -1;
     }
 
-    if (ret == 0)
-    {
-    }
+    transformFrameFormat(frame, acceptFormats);
 
     return 0;
 }
