@@ -4,7 +4,8 @@
 
 #include "Mp4Parser.h"
 #include "AppConfigure.h"
-#include <logger.h>
+#include "logger.h"
+#include "timer.h"
 
 using std::string;
 
@@ -22,19 +23,25 @@ void VideoStreamInfo::updateFrameInfo(MyAVFrame &frame)
     mCurrentFrameInfo.frameSize   = samples[mCurSelectFrame[mCurSelectTrack]].sampleSize;
 }
 
-void VideoStreamInfo::updateFrameTexture()
+void VideoStreamInfo::updateFrameTexture(bool updateBySeek)
 {
     MyAVFrame frame;
-
-    if (getMp4DataShare().decodeFrameAt(mCurSelectTrack, mCurSelectFrame[mCurSelectTrack], frame, {AV_PIX_FMT_RGBA}) < 0)
-        return;
+    if (updateBySeek)
+    {
+        if (getMp4DataShare().decodeFrameAt(mCurSelectTrack, mCurSelectFrame[mCurSelectTrack], frame, {AV_PIX_FMT_RGBA}) < 0)
+            return;
+    }
+    else
+    {
+        getMp4DataShare().decodeNextFrame(mCurSelectTrack, frame, {AV_PIX_FMT_RGBA});
+    }
 
     updateFrameInfo(frame);
 
     updateImageTexture(&mFrameTexture, frame->data[0], frame->width, frame->height, frame->linesize[0]);
 
     mImageDisplay.setTexture(mFrameTexture);
-    mImageDisplay.open();
+    mFrameDisplay.open();
 }
 
 // #FF0000FF
@@ -51,9 +58,26 @@ void VideoStreamInfo::updateFrameTexture()
 
 VideoStreamInfo::VideoStreamInfo()
 {
-    mImageDisplay.setSize({640, 360}, ImGuiCond_FirstUseEver);
-    mImageDisplay.setHasCloseButton(false);
+
+    mHeightScaleUpButton.setToolTip("Height Scale Up");
+    mHeightScaleDownButton.setToolTip("Height Scale Down");
+    mHeightScaleResetButton.setToolTip("Reset Height Scale");
+    mWidthScaleUpButton.setToolTip("Width Scale Up");
+    mWidthScaleDownButton.setToolTip("Width Scale Down");
+    mWidthScaleResetButton.setToolTip("Reset Width Scale");
+    mHistMoveLeftButton.setToolTip("Scroll Left");
+    mHistMoveRightButton.setToolTip("Scroll Right");
+
+    mNextFrameButton.setToolTip("Next Frame");
+    mPrevFrameButton.setToolTip("Prev Frame");
+    mPlayButton.setToolTip("Play");
+    mPauseButton.setToolTip("Pause");
+
     mImageDisplay.open();
+    mImageDisplay.addChildFlag(ImGuiChildFlags_Borders);
+    mFrameDisplay.setHasCloseButton(false);
+    mFrameDisplay.setSize({640, 360}, ImGuiCond_FirstUseEver);
+    mFrameDisplay.setContent([this]() { showFrameDisplay(); });
 }
 
 VideoStreamInfo::~VideoStreamInfo()
@@ -61,7 +85,7 @@ VideoStreamInfo::~VideoStreamInfo()
     freeTexture(&mFrameTexture);
 }
 
-bool VideoStreamInfo::show_hist()
+bool VideoStreamInfo::show_hist(bool updateScroll)
 {
 
     bool frameSelectChanged = false;
@@ -86,7 +110,7 @@ bool VideoStreamInfo::show_hist()
     int    showCols          = (int)floor(histogramShowSize.x / histColWidth);
     histogramShowSize.x      = showCols * histColWidth;
     float colBorderWidth     = histColWidth / 10;
-    float selectLineWidth    = colBorderWidth;
+    float selectLineWidth    = MIN(MAX(1, colBorderWidth), SEL_LINE_WIDTH);
     ImS64 scrollMax          = MAX(0, mTotalVideoFrameCount - showCols + 1);
     scrollMax *= 1000;
 
@@ -160,15 +184,50 @@ bool VideoStreamInfo::show_hist()
             frameSelectChanged               = true;
         }
     }
+    if (updateScroll && !frameSelectChanged)
+    {
+        mHistogramScrollPos = (int)mCurSelectFrame[mCurSelectTrack] - showCols / 2;
+        if (mHistogramScrollPos < 0)
+            mHistogramScrollPos = 0;
+        if (mHistogramScrollPos > scrollMax)
+            mHistogramScrollPos = scrollMax;
+    }
 
-    if (mHistMoveLeftButton.isClicked())
+    uint64_t curTime = gettime_ms();
+    if (mHistMoveLeftButton.isActive())
+    {
+        if (mHistogramScrollPos > 0)
+        {
+            if (curTime - mLastMoveLeftTime > mMoveInterval)
+            {
+                mLastMoveLeftTime = curTime;
+                mHistogramScrollPos -= 1;
+                if (mHistogramScrollPos < 0)
+                    mHistogramScrollPos = 0;
+            }
+        }
+    }
+    else if (mHistMoveLeftButton.isClicked())
     {
         mHistogramScrollPos -= 1;
         if (mHistogramScrollPos < 0)
             mHistogramScrollPos = 0;
     }
 
-    if (mHistMoveRightButton.isClicked())
+    if (mHistMoveRightButton.isActive())
+    {
+        if (mHistogramScrollPos < scrollMax)
+        {
+            if (curTime - mLastMoveRightTime > mMoveInterval)
+            {
+                mLastMoveRightTime = curTime;
+                mHistogramScrollPos += 1;
+                if (mHistogramScrollPos > scrollMax)
+                    mHistogramScrollPos = scrollMax;
+            }
+        }
+    }
+    else if (mHistMoveRightButton.isClicked())
     {
         mHistogramScrollPos += 1;
         if (mHistogramScrollPos > scrollMax)
@@ -184,34 +243,18 @@ bool VideoStreamInfo::show_hist()
 
 bool VideoStreamInfo::show()
 {
-    do
-    {
-        if (mDockId != 0)
-            break;
+    if (mDockId == 0)
+        mDockId = ImGui::GetID("StreamInfoDockSpace");
+    ImGuiID dockUpId   = 0;
+    ImGuiID dockDownId = 0;
 
-        mDockId         = ImGui::GetID("StreamInfoDockSpace");
-        ImGuiID dock_id = mDockId;
+    int dockFlags = ImGuiDockNodeFlags_AutoHideTabBar | ImGuiDockNodeFlags_NoDockingOverCentralNode;
 
-        if (ImGui::DockBuilderGetNode(dock_id)) // not fist open
-            break;
+    ImGui::DockSpace(mDockId, ImVec2(0, 0), dockFlags);
 
-        ImGui::DockBuilderRemoveNode(dock_id);
-        ImGui::DockBuilderAddNode(dock_id, ImGuiDockNodeFlags_DockSpace);
-        ImGui::DockBuilderSetNodeSize(dock_id, ImGui::GetMainViewport()->Size);
+    splitDock(mDockId, ImGuiDir_Up, 0.5f, &dockUpId, &dockDownId);
 
-        ImGuiID dock_id_top       = ImGui::DockBuilderSplitNode(dock_id, ImGuiDir_Up, 0.4f, nullptr, &dock_id);
-        ImGuiID dock_id_down_left = ImGui::DockBuilderSplitNode(dock_id, ImGuiDir_Left, 0.75f, nullptr, &dock_id);
-
-        ImGui::DockBuilderDockWindow("Stream Hist", dock_id_top);
-        ImGui::DockBuilderDockWindow("Frame", dock_id_down_left);
-        ImGui::DockBuilderDockWindow("Frame Info", dock_id);
-
-        ImGui::DockBuilderFinish(mDockId);
-    } while (0);
-    ImGui::DockSpace(mDockId, ImVec2(0, 0), ImGuiDockNodeFlags_AutoHideTabBar);
-
-    ImVec2 itemSpacing = ImGui::GetStyle().ItemSpacing;
-    float  textHeight  = ImGui::GetTextLineHeight();
+    float textHeight = ImGui::GetTextLineHeight();
 
     float buttonSize = MAX(ImGui::GetStyle().ItemInnerSpacing.y * 2 + textHeight,
                            ImGui::GetStyle().ItemInnerSpacing.x * 2 + ImGui::CalcTextSize("+").x);
@@ -235,6 +278,7 @@ bool VideoStreamInfo::show()
 
     mHistogramPos = mSideBarPos + ImVec2{mSideBarWidth + ITEM_SPACING, MAX(mButtonSize.y, textHeight) / 2};
 
+    ImGui::SetNextWindowDockID(dockUpId);
     ImGui::Begin("Stream Hist", 0, ImGuiWindowFlags_NoScrollbar);
     ImGui::BeginChild("Stream Hist Child", ImVec2(0, 0), 0, ImGuiWindowFlags_NoScrollbar);
 
@@ -311,14 +355,51 @@ bool VideoStreamInfo::show()
 
     ImGui::SetCursorScreenPos(mHistogramPos);
 
-    bool frameSelectChanged = show_hist();
+    bool playNextFrame = false;
+    bool selectFrame   = false;
+    if (mIsPlaying)
+    {
+        uint64_t curTimeMs = gettime_ms();
+        if (curTimeMs - mLastPlayTimeMs >= mMoveInterval)
+        {
+            mLastPlayTimeMs = curTimeMs;
+            mCurSelectFrame[mCurSelectTrack]++;
+            if (mCurSelectFrame[mCurSelectTrack] >= getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
+            {
+                mIsPlaying = false;
+            }
+            playNextFrame = true;
+        }
+    }
+
+    if (show_hist(playNextFrame))
+    {
+        mIsPlaying  = false;
+        selectFrame = true;
+    }
+
+    if (mNextFrameButton.isClicked())
+    {
+        if (mCurSelectFrame[mCurSelectTrack] < getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
+        {
+            mCurSelectFrame[mCurSelectTrack]++;
+            selectFrame = true;
+        }
+    }
+
+    if (mPrevFrameButton.isClicked())
+    {
+        if (mCurSelectFrame[mCurSelectTrack] > 0)
+        {
+            mCurSelectFrame[mCurSelectTrack]--;
+            selectFrame = true;
+        }
+    }
 
     ImGui::SetCursorScreenPos({mHistogramPos.x, mHistogramPos.y + mHistogramSize.y + ITEM_SPACING});
     ImGui::Text("%u", mHistogramStartIdx + 1); // make it start from 1
-    // Z_INFO("mHistogramSize.x {}, hist_show_w = {}, mHistogramStartIdx {}, mHistogramEndIdx {}\n", mHistogramSize.x,
-    // hist_show_w,
-    //    mHistogramStartIdx, mHistogramEndIdx);
-    ImVec2 text_size = ImGui::CalcTextSize(std::to_string(mHistogramEndIdx).c_str());
+
+    ImVec2 text_size = ImGui::CalcTextSize(std::to_string(mHistogramEndIdx + 1).c_str());
     ImGui::SetCursorScreenPos(
         {mHistogramPos.x + mHistogramSize.x - text_size.x, mHistogramPos.y + mHistogramSize.y + ITEM_SPACING});
     ImGui::Text("%u", mHistogramEndIdx + 1); // make it start from 1
@@ -362,6 +443,23 @@ bool VideoStreamInfo::show()
     ImGui::SetCursorScreenPos(mWidthScaleUpButton.itemPos() - ImVec2(mHistMoveRightButton.itemSize().x + ITEM_SPACING, 0));
     mHistMoveRightButton.showDisabled(mHistogramEndIdx >= mTotalVideoFrameCount - 1);
 
+    float space = mHistMoveRightButton.itemPos().x - mHistMoveLeftButton.itemPos().x;
+    if (space < 0)
+    {
+        space = 0;
+    }
+
+    float centralButtonsSize = mNextFrameButton.itemSize().x + mPrevFrameButton.itemSize().x + ITEM_SPACING;
+    ImGui::SetCursorScreenPos(
+        ImVec2(mHistMoveLeftButton.itemPos().x + (space - centralButtonsSize) / 2, mHistMoveLeftButton.itemPos().y));
+    mPrevFrameButton.showDisabled(mCurSelectFrame[mCurSelectTrack] <= 0);
+
+    ImGui::SetCursorScreenPos(
+        ImVec2(mPrevFrameButton.itemPos().x + mPrevFrameButton.itemSize().x + ITEM_SPACING, mPrevFrameButton.itemPos().y));
+
+    mNextFrameButton.showDisabled(mCurSelectFrame[mCurSelectTrack]
+                                  >= getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1);
+
     if (getMp4DataShare().videoTracksIdx.size() > 1)
     {
         if (ImGui::BeginPopupContextWindow("Select Track", ImGuiPopupFlags_MouseButtonRight))
@@ -384,22 +482,26 @@ bool VideoStreamInfo::show()
         }
     }
 
-    ImGui::EndChild();
+    ImGui::EndChild(); // Stream Hist Child
+
     ImGui::End();
 
-    if (frameSelectChanged)
-        updateFrameTexture();
+    if (selectFrame)
+        updateFrameTexture(true);
+    else if (playNextFrame)
+        updateFrameTexture(false);
 
-    mImageDisplay.show();
+    mFrameDisplay.show();
 
     if (getAppConfigure().needShowFrameInfo)
     {
+        ImGui::SetNextWindowDockID(dockDownId);
         ImGui::Begin("Frame Info", &getAppConfigure().needShowFrameInfo);
         showFrameInfo();
         ImGui::End();
     }
 
-    return frameSelectChanged;
+    return selectFrame || playNextFrame;
 }
 
 void VideoStreamInfo::resetData()
@@ -420,7 +522,6 @@ void VideoStreamInfo::updateData()
 {
     freeTexture(&mFrameTexture);
     mImageDisplay.clear();
-    mImageDisplay.close();
 
     if (getMp4DataShare().videoTracksIdx.empty())
         return;
@@ -430,7 +531,7 @@ void VideoStreamInfo::updateData()
     mTotalVideoFrameCount = (uint32_t)samples.size();
 
     mHistogramMaxSize = getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack];
-    updateFrameTexture();
+    updateFrameTexture(true);
 }
 
 void VideoStreamInfo::showFrameInfo()
@@ -455,4 +556,33 @@ void VideoStreamInfo::updateFrameInfo(unsigned int trackIdx, uint32_t frameIdx, 
     {
         mCurrentFrameInfo.frameType = mp4GetFrameTypeStr(frameType);
     }
+}
+
+void VideoStreamInfo::showFrameDisplay()
+{
+    ImVec2 ContentSize = ImGui::GetContentRegionAvail();
+    ImVec2 ImageRegion = ContentSize - ImVec2(0, mPlayControlPanelSize.y);
+
+    mImageDisplay.setSize(ImageRegion);
+    mImageDisplay.show();
+
+    ImVec2 controlPanelStart = ImGui::GetCursorScreenPos();
+    if (mIsPlaying)
+    {
+        mPauseButton.show();
+
+        if (mPauseButton.isClicked())
+            mIsPlaying = false;
+    }
+    else
+    {
+        mPlayButton.show();
+        if (mPlayButton.isClicked())
+        {
+            mIsPlaying      = true;
+            mLastPlayTimeMs = gettime_ms();
+        }
+    }
+
+    mPlayControlPanelSize = ImGui::GetCursorScreenPos() - controlPanelStart;
 }

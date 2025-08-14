@@ -53,17 +53,23 @@ public:
     std::shared_ptr<Mp4Parser> getParser() { return mParser; }
     int                        startParse(PARSE_OPERATION_E op);
     PARSE_OPERATION_E          getCurrentOperation() const { return mOperation; }
-    int   decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats);
-    void  updateData();
-    float getParseFileProgress();
-    float getParseFrameTypeProgress();
-    void  recreateDecoder();
-    void  clear();
+    void                       updateData();
+    float                      getParseFileProgress();
+    float                      getParseFrameTypeProgress();
+    void                       recreateDecoder();
+    void                       clear();
+
+    int decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats);
+    int decodeNextFrame(uint32_t trackIdx, MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats);
 
 private:
     virtual void run() override;
     virtual void starting() override;
     virtual void stopping() override;
+
+    int sendPacketToDecoder(uint32_t trackIdx, uint32_t frameIdx);
+    int decodeOneFrame(uint32_t trackIdx, MyAVFrame &frame);
+    int transformFrameFormat(MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats);
 
 public:
     std::string toParseFilePath;
@@ -88,6 +94,13 @@ private:
     volatile uint64_t mParsingFrameCount    = 0;
     uint64_t          mTotalVideoFrameCount = 0;
     volatile bool     mIsContinue           = false;
+
+    struct TrackDecodeInfo
+    {
+        int64_t lastDecodedFrameIdx = -1;
+        int64_t lastExtractFrameIdx = -1; // if there's B Frame, lastExtractFrameIdx may not equal to lastDecodedFrameIdx
+    };
+    std::map<int /* trackIdx */, TrackDecodeInfo> mTracksDecodeStat;
 };
 
 Mp4ParseData &getMp4DataShare();

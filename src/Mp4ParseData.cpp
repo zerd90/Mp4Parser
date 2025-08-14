@@ -41,15 +41,18 @@ int Mp4ParseData::startParse(PARSE_OPERATION_E op)
 int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame &frame,
                                 const std::vector<AVPixelFormat> &acceptFormats)
 {
+
     auto trackDecoder = mVideoDecoders.find(trackIdx);
     if (trackDecoder == mVideoDecoders.end())
         return -1;
+
     auto &decoder = trackDecoder->second;
 
-    int        ret = 0;
     MyAVPacket packet;
 
     auto &samples = tracksInfo[trackIdx].mediaInfo->samplesInfo;
+    if (frameIdx >= samples.size())
+        return -1;
 
     uint32_t seekFrameIdx = 0;
     for (seekFrameIdx = frameIdx; seekFrameIdx > 0; seekFrameIdx--)
@@ -57,64 +60,126 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
         if (samples[seekFrameIdx].isKeyFrame)
             break;
     }
-
-    int64_t targetPts = samples[frameIdx].ptsMs;
-    Z_INFO("target frame pts {}\n", targetPts);
-
-    avcodec_flush_buffers(decoder.get());
-    bool     frameGot        = false;
-    uint32_t extractFrameIdx = seekFrameIdx;
-    while (1)
+    bool needSeek = false;
+    Z_INFO("lastDecodedFrameIdx=%d\n", mTracksDecodeStat[trackIdx].lastDecodedFrameIdx);
+    if (mTracksDecodeStat[trackIdx].lastDecodedFrameIdx < 0 || mTracksDecodeStat[trackIdx].lastDecodedFrameIdx >= frameIdx)
     {
-        while (1)
+        needSeek = true;
+    }
+    else
+    {
+        for (int64_t i = mTracksDecodeStat[trackIdx].lastDecodedFrameIdx; i <= frameIdx; i++)
         {
-            frame.clear();
-            ret = decoder.receive_frame(frame);
-            if (ret < 0)
+            if (samples[i].isKeyFrame)
             {
-                if (AVERROR_EOF == ret || AVERROR(EAGAIN) == ret)
-                {
-                    break;
-                }
-                else
-                {
-                    Z_ERR("err {}\n", ffmpeg_make_err_string(ret));
-                    return -1;
-                }
-            }
-
-            if (frame->pts == targetPts)
-            {
-                frameGot = true;
+                needSeek = true;
                 break;
             }
         }
+    }
 
-        if (frameGot)
+    if (needSeek)
+    {
+        avcodec_flush_buffers(decoder.get());
+        mTracksDecodeStat[trackIdx].lastExtractFrameIdx = seekFrameIdx - 1;
+    }
+    while (1)
+    {
+        if (decodeOneFrame(trackIdx, frame) < 0)
+        {
+            return -1;
+        }
+
+        if (mTracksDecodeStat[trackIdx].lastExtractFrameIdx == frameIdx)
+        {
             break;
+        }
+    }
 
-        if (extractFrameIdx >= samples.size())
+    transformFrameFormat(frame, acceptFormats);
+
+    return 0;
+}
+
+int Mp4ParseData::sendPacketToDecoder(uint32_t trackIdx, uint32_t frameIdx)
+{
+    auto trackDecoder = mVideoDecoders.find(trackIdx);
+    if (trackDecoder == mVideoDecoders.end())
+        return -1;
+
+    auto &decoder = trackDecoder->second;
+    auto &samples = tracksInfo[trackIdx].mediaInfo->samplesInfo;
+
+    if (frameIdx >= samples.size())
+    {
+        Z_ERR("no more frames {} >= {}\n", frameIdx, samples.size());
+        return -1;
+    }
+
+    MyAVPacket packet;
+
+    Mp4VideoFrame videoSample;
+
+    int ret = mParser->getVideoSample(trackIdx, frameIdx, videoSample);
+    if (ret < 0)
+    {
+        Z_ERR("err {}\n", ret);
+        return -1;
+    }
+    packet.setBuffer(videoSample.sampleData.get(), (int)videoSample.dataSize);
+    packet->pts = videoSample.ptsMs;
+    packet->dts = videoSample.dtsMs;
+    ret         = decoder.send_packet(packet);
+    if (ret < 0)
+    {
+        Z_ERR("send_packet fail: {}\n", ffmpeg_make_err_string(ret));
+        return -1;
+    }
+    mTracksDecodeStat[trackIdx].lastExtractFrameIdx = frameIdx;
+
+    printf("send packet pts %" PRId64 "\n", packet->pts);
+
+    return 0;
+}
+
+int Mp4ParseData::decodeOneFrame(uint32_t trackIdx, MyAVFrame &frame)
+{
+    auto trackDecoder = mVideoDecoders.find(trackIdx);
+    if (trackDecoder == mVideoDecoders.end())
+        return -1;
+
+    auto &decoder = trackDecoder->second;
+    auto &samples = tracksInfo[trackIdx].mediaInfo->samplesInfo;
+
+    auto &trackDecodeInfo = mTracksDecodeStat[trackIdx];
+
+    int ret = 0;
+
+    uint32_t extractFrameIdx = (uint32_t)(trackDecodeInfo.lastExtractFrameIdx + 1);
+
+    while (1)
+    {
+        frame.clear();
+        ret = decoder.receive_frame(frame);
+        if (ret == 0)
         {
-            Z_ERR("not getting any frame\n");
+            printf("get frame pts %" PRId64 "\n", frame->pts);
+            break;
+        }
+        else if (ret < 0)
+        {
+            if (ret != AVERROR(EAGAIN))
+            {
+                Z_ERR("err {}\n", ffmpeg_make_err_string(ret));
+                return -1;
+            }
+        }
+
+        if (sendPacketToDecoder(trackIdx, extractFrameIdx) < 0)
+        {
             return -1;
         }
-        packet.clear();
-        Mp4VideoFrame videoSample;
-        ret = mParser->getVideoSample(trackIdx, extractFrameIdx, videoSample);
-        if (ret < 0)
-        {
-            Z_ERR("err {}\n", ret);
-            return -1;
-        }
-        packet.setBuffer(videoSample.sampleData.get(), (int)videoSample.dataSize);
-        packet->pts = videoSample.ptsMs;
-        packet->dts = videoSample.dtsMs;
-        ret         = decoder.send_packet(packet);
-        if (ret < 0)
-        {
-            Z_ERR("send_packet fail: {}\n", ffmpeg_make_err_string(ret));
-            return -1;
-        }
+
         extractFrameIdx++;
         if (extractFrameIdx == samples.size())
         {
@@ -122,11 +187,32 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
         }
     }
 
+    auto frm = std::find_if(samples.begin(), samples.end(),
+                            [&frame](const Mp4SampleItem &sample) { return (int64_t)sample.ptsMs == frame->pts; });
+    if (frm == samples.end())
+    {
+        return -1;
+    }
+    trackDecodeInfo.lastDecodedFrameIdx = frm->sampleIdx;
+
+    return 0;
+}
+
+int Mp4ParseData::transformFrameFormat(MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats)
+{
     Z_INFO("frame format {}\n", frame->format);
     Z_INFO("frame pict_type {}\n", frame->pict_type);
     Z_INFO("frame pts {}\n", frame->pts);
 
     Z_INFO("Get Frame Format {}\n", frame->format);
+
+    int ret = 0;
+
+    if (std::find(acceptFormats.begin(), acceptFormats.end(), (AVPixelFormat)frame->format) != acceptFormats.end())
+    {
+        return 0;
+    }
+
     if (isHardwareFormat((AVPixelFormat)frame->format))
     {
         MyAVFrame trans_frame;
@@ -172,6 +258,40 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
     }
 
     frame = transFrame;
+
+    return 0;
+}
+
+int Mp4ParseData::decodeNextFrame(uint32_t trackIdx, MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats)
+{
+
+    auto it = mTracksDecodeStat.find(trackIdx);
+    if (it == mTracksDecodeStat.end())
+    {
+        return decodeFrameAt(trackIdx, 0, frame, acceptFormats);
+    }
+    auto trackDecoder = mVideoDecoders.find(trackIdx);
+    if (trackDecoder == mVideoDecoders.end())
+        return -1;
+
+    auto &samples = tracksInfo[trackIdx].mediaInfo->samplesInfo;
+
+    auto &trackDecodeInfo = it->second;
+    if (trackDecodeInfo.lastDecodedFrameIdx >= (int64_t)samples.size() - 1)
+    {
+        Z_ERR("lastDecodedFrameIdx {} >= samples size {}\n", trackDecodeInfo.lastDecodedFrameIdx,
+              tracksInfo[trackIdx].mediaInfo->samplesInfo.size());
+        return -1;
+    }
+
+    MyAVPacket packet;
+
+    if (decodeOneFrame(trackIdx, frame) < 0)
+    {
+        return -1;
+    }
+
+    transformFrameFormat(frame, acceptFormats);
 
     return 0;
 }
@@ -311,6 +431,8 @@ void Mp4ParseData::recreateDecoder()
             return;
         }
     }
+
+    mTracksDecodeStat.clear();
 }
 
 void Mp4ParseData::run()
@@ -420,7 +542,7 @@ void Mp4ParseData::clear()
     videoTracksIdx.clear();
 
     mTotalVideoFrameCount = 0;
-    mParsingFrameCount     = 0;
+    mParsingFrameCount    = 0;
     newDataAvailable      = false;
     dataAvailable         = false;
 }

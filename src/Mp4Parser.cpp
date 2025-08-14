@@ -854,35 +854,19 @@ void Mp4ParserApp::updateChunksTable()
 void Mp4ParserApp::showMp4InfoTab()
 {
 
-    do
+    if (mDockId == 0)
     {
-        if (mDockId != 0)
-            break;
+        mDockId = ImGui::GetID("Mp4InfoDockSpace");
+    }
 
-        mDockId         = ImGui::GetID("Mp4InfoDockSpace");
-        ImGuiID dock_id = mDockId;
+    ImGui::DockSpace(mDockId, {0, 0}, ImGuiDockNodeFlags_AutoHideTabBar);
+    splitDock(mDockId, ImGuiDir_Left, 0.3f, &mDockIdLeft, &mDockIdRight);
 
-        if (ImGui::DockBuilderGetNode(dock_id))
-            break;
-
-        ImGui::DockBuilderAddNode(dock_id, ImGuiDockNodeFlags_DockSpace);
-        ImGui::DockBuilderSetNodeSize(dock_id, ImGui::GetMainViewport()->Size);
-
-        ImGuiID dock_id_left = ImGui::DockBuilderSplitNode(dock_id, ImGuiDir_Left, 0.3f, nullptr, &dock_id);
-
-        ImGui::DockBuilderDockWindow("Leading", dock_id_left);
-        ImGui::DockBuilderDockWindow("Information", dock_id);
-
-        ImGui::DockBuilderFinish(mDockId);
-
-    } while (0);
-
-    ImGui::DockSpace(mDockId, {0, 0}, ImGuiDockNodeFlags_AutoHideTabBar | ImGuiDockNodeFlags_NoUndocking);
-
-    ImGui::Begin("Leading");
+    ImGui::SetNextWindowDockID(mDockIdLeft);
+    ImGui::Begin("Leading", nullptr);
     ImGui::BeginTabBar("Leadings", ImGuiTabBarFlags_FittingPolicyResizeDown);
 
-    if (ImGui::IsKeyPressed(ImGuiKey_F) && m_focus_on == FOCUS_ON_BOXES)
+    if (ImGui::IsKeyPressed(ImGuiKey_F) && ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && m_focus_on == FOCUS_ON_BOXES)
         set_all_open_state(mVirtFileBox.get(), mSomeTreeNodeOpened);
 
     ShowBoxesTreeView();
@@ -890,6 +874,7 @@ void Mp4ParserApp::showMp4InfoTab()
     ImGui::EndTabBar();
     ImGui::End();
 
+    ImGui::SetNextWindowDockID(mDockIdRight);
     mInfoWindow.show();
 
     static int start_phase = 1;
@@ -1433,8 +1418,5 @@ void Mp4ParserApp::startParseFile(const std::string &file_path)
 }
 void Mp4ParserApp::exit()
 {
-    if (getMp4DataShare().isRunning())
-    {
-        getMp4DataShare().stop();
-    }
+    getMp4DataShare().stop();
 }

@@ -44,14 +44,15 @@ public:
     virtual ~VideoStreamInfo();
     bool show();
     void resetData();
-    void updateFrameTexture();
+    void updateFrameTexture(bool updateBySeek);
     void updateFrameInfo(unsigned int trackIdx, uint32_t frameIdx, H26X_FRAME_TYPE_E frameType);
 
 private:
     void updateData();
-    bool show_hist();
+    bool show_hist(bool updateScroll);
     void updateFrameInfo(MyAVFrame &frame);
     void showFrameInfo();
+    void showFrameDisplay();
 
 private:
     std::map<unsigned int /* trackIdx */, uint32_t> mCurSelectFrame;
@@ -86,7 +87,8 @@ private:
     } mCurrentFrameInfo;
 
     // Items
-    ImageWindow mImageDisplay = ImageWindow("Frame", false);
+    ImageWindow  mImageDisplay = ImageWindow("Frame Render", true);
+    IImGuiWindow mFrameDisplay = IImGuiWindow("Frame Display");
 
     ImGuiButton mHeightScaleUpButton    = ImGuiButton("+##height scale");
     ImGuiButton mHeightScaleDownButton  = ImGuiButton("-##height scale");
@@ -96,6 +98,20 @@ private:
     ImGuiButton mWidthScaleResetButton  = ImGuiButton("o##width scale");
     ImGuiButton mHistMoveLeftButton     = ImGuiButton("<");
     ImGuiButton mHistMoveRightButton    = ImGuiButton(">");
+
+    ImGuiButton mNextFrameButton = ImGuiButton(">##next frame");
+    ImGuiButton mPrevFrameButton = ImGuiButton("<##prev frame");
+    ImGuiButton mPlayButton      = ImGuiButton("Play##button");
+    ImGuiButton mPauseButton     = ImGuiButton("Pause##button");
+
+    bool     mIsPlaying      = false;
+    uint64_t mLastPlayTimeMs = 0;
+    uint32_t mPlayIntervalMs = 50; // 20fps
+    ImVec2   mPlayControlPanelSize;
+
+    uint64_t       mLastMoveLeftTime  = 0;
+    uint64_t       mLastMoveRightTime = 0;
+    const uint64_t mMoveInterval      = 50;
 };
 
 class Mp4ParserApp : public ImGuiApplication
@@ -143,7 +159,9 @@ private:
 private:
     std::string mToParseFile;
 
-    ImGuiID mDockId = 0;
+    ImGuiID mDockId      = 0;
+    ImGuiID mDockIdLeft  = 0;
+    ImGuiID mDockIdRight = 0;
 
     bool m_metrics_show = false;
 
