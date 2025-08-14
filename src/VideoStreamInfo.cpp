@@ -268,6 +268,14 @@ bool VideoStreamInfo::show()
 
     mHistMoveLeftButton.setItemSize({buttonSize, buttonSize});
     mHistMoveRightButton.setItemSize({buttonSize, buttonSize});
+
+    ImGui::SetNextWindowDockID(dockUpId);
+    ImGui::Begin("Stream Hist", 0, ImGuiWindowFlags_NoScrollbar);
+    ImGui::BeginChild("Stream Hist Child", ImVec2(0, 0), 0, ImGuiWindowFlags_NoScrollbar);
+
+    mWinSize = ImGui::GetWindowSize();
+    mWinPos  = ImGui::GetWindowPos();
+
 #define ITEM_SPACING (5)
     mSideBarPos   = mWinPos + ImVec2{ITEM_SPACING, ITEM_SPACING};
     mSideBarWidth = mButtonSize.x
@@ -277,13 +285,6 @@ bool VideoStreamInfo::show()
     mBottomBarHeight = mButtonSize.y + textHeight + ITEM_SPACING * 3;
 
     mHistogramPos = mSideBarPos + ImVec2{mSideBarWidth + ITEM_SPACING, MAX(mButtonSize.y, textHeight) / 2};
-
-    ImGui::SetNextWindowDockID(dockUpId);
-    ImGui::Begin("Stream Hist", 0, ImGuiWindowFlags_NoScrollbar);
-    ImGui::BeginChild("Stream Hist Child", ImVec2(0, 0), 0, ImGuiWindowFlags_NoScrollbar);
-
-    mWinSize = ImGui::GetWindowSize();
-    mWinPos  = ImGui::GetWindowPos();
 
     mHistogramSize.x = mWinPos.x + mWinSize.x - mHistogramPos.x;
     mHistogramSize.y = mWinPos.y + mWinSize.y - mHistogramPos.y - mBottomBarHeight;
@@ -404,7 +405,8 @@ bool VideoStreamInfo::show()
         {mHistogramPos.x + mHistogramSize.x - text_size.x, mHistogramPos.y + mHistogramSize.y + ITEM_SPACING});
     ImGui::Text("%u", mHistogramEndIdx + 1); // make it start from 1
 
-    buttonPos = mWidthScaleDownButton.itemPos() - ImVec2(mWidthScaleResetButton.itemSize().x + ITEM_SPACING, 0);
+    buttonPos = ImVec2(mHistogramPos.x - mWidthScaleResetButton.itemSize().x - ITEM_SPACING,
+                       mHistogramPos.y + mHistogramSize.y + textHeight + ITEM_SPACING * 2);
     ImGui::SetCursorScreenPos(buttonPos);
     mWidthScaleResetButton.show();
     if (mWidthScaleResetButton.isClicked())
@@ -412,7 +414,8 @@ bool VideoStreamInfo::show()
         mHistogramWidthScale = 1.f;
     }
 
-    ImGui::SetCursorScreenPos(ImVec2(mHistogramPos.x, mHistogramPos.y + mHistogramSize.y + textHeight + ITEM_SPACING * 2));
+    buttonPos = buttonPos + ImVec2(mWidthScaleResetButton.itemSize().x + ITEM_SPACING, 0);
+    ImGui::SetCursorScreenPos(buttonPos);
     mWidthScaleDownButton.showDisabled(mHistogramWidthScale <= HIST_W_MIN_SCALE);
     if (mWidthScaleDownButton.isClicked())
     {
