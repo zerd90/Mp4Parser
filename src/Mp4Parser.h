@@ -52,6 +52,7 @@ private:
     bool show_hist(bool updateScroll);
     void updateFrameInfo(MyAVFrame &frame);
     void showFrameInfo();
+    void showFrameDisplay();
 
 private:
     std::map<unsigned int /* trackIdx */, uint32_t> mCurSelectFrame;
@@ -86,7 +87,8 @@ private:
     } mCurrentFrameInfo;
 
     // Items
-    ImageWindow mImageDisplay = ImageWindow("Frame", false);
+    ImageWindow  mImageDisplay = ImageWindow("Frame Render", true);
+    IImGuiWindow mFrameDisplay = IImGuiWindow("Frame Display");
 
     ImGuiButton mHeightScaleUpButton    = ImGuiButton("+##height scale");
     ImGuiButton mHeightScaleDownButton  = ImGuiButton("-##height scale");
@@ -99,12 +101,13 @@ private:
 
     ImGuiButton mNextFrameButton = ImGuiButton(">##next frame");
     ImGuiButton mPrevFrameButton = ImGuiButton("<##prev frame");
-    ImGuiButton mPlayButton      = ImGuiButton(">##play");
-    ImGuiButton mPauseButton     = ImGuiButton("||##pause");
+    ImGuiButton mPlayButton      = ImGuiButton("Play##button");
+    ImGuiButton mPauseButton     = ImGuiButton("Pause##button");
 
     bool     mIsPlaying      = false;
     uint64_t mLastPlayTimeMs = 0;
     uint32_t mPlayIntervalMs = 50; // 20fps
+    ImVec2   mPlayControlPanelSize;
 
     uint64_t       mLastMoveLeftTime  = 0;
     uint64_t       mLastMoveRightTime = 0;

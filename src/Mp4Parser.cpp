@@ -1418,8 +1418,5 @@ void Mp4ParserApp::startParseFile(const std::string &file_path)
 }
 void Mp4ParserApp::exit()
 {
-    if (getMp4DataShare().isRunning())
-    {
-        getMp4DataShare().stop();
-    }
+    getMp4DataShare().stop();
 }
