@@ -4,7 +4,6 @@
 
 #include "Mp4Parser.h"
 #include "AppConfigure.h"
-#include "logger.h"
 #include "timer.h"
 
 using std::string;
@@ -112,7 +111,6 @@ bool VideoStreamInfo::show_hist(bool updateScroll)
     float colBorderWidth     = histColWidth / 10;
     float selectLineWidth    = MIN(MAX(1, colBorderWidth), SEL_LINE_WIDTH);
     ImS64 scrollMax          = MAX(0, mTotalVideoFrameCount - showCols + 1);
-    scrollMax *= 1000;
 
     ImGuiWindow *parent_window       = ImGui::GetCurrentWindow();
     ImS64        scroll_visible_size = (ImS64)(ImGui::GetContentRegionAvail().x);
@@ -121,12 +119,27 @@ bool VideoStreamInfo::show_hist(bool updateScroll)
 
     ImRect  scrollbar_rect = ImGui::GetWindowScrollbarRect(parent_window, (ImGuiAxis)ImGuiAxis_X);
     ImGuiID scrollbar_id   = ImGui::GetWindowScrollbarID(parent_window, (ImGuiAxis)ImGuiAxis_X);
+    // time 1000 to make the scrollbar more smooth
+    scrollMax *= 1000;
     mHistogramScrollPos *= 1000;
     ImGui::ScrollbarEx(scrollbar_rect, scrollbar_id, (ImGuiAxis)ImGuiAxis_X, &mHistogramScrollPos, scroll_visible_size, scrollMax,
                        ImDrawFlags_RoundCornersAll);
     mHistogramScrollPos /= 1000;
+    scrollMax /= 1000;
 
     parent_window->ScrollbarSizes.y = 0.0f; // Restore modified value
+
+    if (updateScroll)
+    {
+        if (mCurSelectFrame[mCurSelectTrack] > mHistogramStartIdx + showCols * 2 / 3 && mHistogramScrollPos < scrollMax)
+        {
+            mHistogramScrollPos++;
+        }
+        else if (mCurSelectFrame[mCurSelectTrack] < mHistogramStartIdx + showCols / 3 && mHistogramScrollPos > 0)
+        {
+            mHistogramScrollPos--;
+        }
+    }
 
     // Scrolling region use remaining space
     ImGui::BeginChild("HistRender##Real", ImVec2(0, -scrollbar_size));
@@ -183,14 +196,6 @@ bool VideoStreamInfo::show_hist(bool updateScroll)
             mCurSelectFrame[mCurSelectTrack] = frameIdx;
             frameSelectChanged               = true;
         }
-    }
-    if (updateScroll && !frameSelectChanged)
-    {
-        mHistogramScrollPos = (int)mCurSelectFrame[mCurSelectTrack] - showCols / 2;
-        if (mHistogramScrollPos < 0)
-            mHistogramScrollPos = 0;
-        if (mHistogramScrollPos > scrollMax)
-            mHistogramScrollPos = scrollMax;
     }
 
     uint64_t curTime = gettime_ms();
@@ -373,7 +378,32 @@ bool VideoStreamInfo::show()
         }
     }
 
-    if (show_hist(playNextFrame))
+    if (mFrameDisplay.isFocused())
+    {
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
+        {
+            if (mCurSelectFrame[mCurSelectTrack] < mTotalVideoFrameCount - 1)
+            {
+                mCurSelectFrame[mCurSelectTrack]++;
+                selectFrame = true;
+            }
+        }
+        else if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
+        {
+            if (mCurSelectFrame[mCurSelectTrack] > 0)
+            {
+                mCurSelectFrame[mCurSelectTrack]--;
+                selectFrame = true;
+            }
+        }
+
+        if (ImGui::IsKeyReleased(ImGuiKey_Space, false))
+        {
+            mIsPlaying = !mIsPlaying;
+        }
+    }
+
+    if (show_hist(playNextFrame || selectFrame))
     {
         mIsPlaying  = false;
         selectFrame = true;
