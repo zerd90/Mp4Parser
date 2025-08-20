@@ -6,26 +6,21 @@ project(Mp4Parser)
 
 include(my_tools/common.cmake)
 
-execute_process(
-	COMMAND git submodule update --init --depth 1
-	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-)
-
 # set INCLUDE_DIRECTORIES in every subdirectorys
 add_subdirectory(my_tools my_tools)
 add_subdirectory(Mp4ParseLib Mp4ParseLib)
 
 # Set This To Your FFmpeg header/library path
 set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
-	"D:/Files/3rdparty/include"
+	${CMAKE_SOURCE_DIR}/3rdlibrary/ffmpeg/include
+	${CMAKE_SOURCE_DIR}/3rdlibrary/freetype/include
 )
-link_directories("D:/Files/3rdparty/lib")
 
-# Uncomment the following lines if you want to use Freetype for GUI Font functions
+link_directories(
+	${CMAKE_SOURCE_DIR}/3rdlibrary/ffmpeg/lib
+	${CMAKE_SOURCE_DIR}/3rdlibrary/freetype/lib)
+
 set(USING_FREETYPE ON CACHE BOOL "Enable freetype" FORCE)
-set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
-	"D:/Files/3rdparty/include/freetype"
-)
 
 add_subdirectory(imgui_base imgui)
 
@@ -53,3 +48,8 @@ endif()
 target_link_libraries(${PROJECT_NAME} ${LINK_LIBRARIES})
 
 install(TARGETS ${PROJECT_NAME} DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/bin)
+file(GLOB DLL_LIST ${CMAKE_SOURCE_DIR}/3rdlibrary/ffmpeg/bin/*.dll)
+set(DLL_LIST ${DLL_LIST}
+	${CMAKE_SOURCE_DIR}/3rdlibrary/freetype/bin/freetype.dll)
+
+install(FILES ${DLL_LIST} DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/bin)
