@@ -8,26 +8,11 @@
 #include "ImGuiItem.h"
 #include "ImGuiTools.h"
 
-#define MYFFMPEG_DEBUG
-#include "Myffmpeg.h"
+#include "VideoStreamInfo.h"
 
 #define TABLE_FLAGS                                                                                                        \
     (ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Borders \
      | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX)
-
-#define MAX_VIDEO_FRAMES  (180000)
-#define HIST_PAGE_SAMPLES (200)
-#define MAX_HIST_PAGES    ((MAX_VIDEO_FRAMES) / (HIST_PAGE_SAMPLES))
-#define HIST_W_MAX_SCALE  (4.f)
-#define HIST_W_MIN_SCALE  (0.125f)
-#define HIST_H_MAX_SCALE  (2.f)
-#define HIST_H_MIN_SCALE  (0.4f)
-#define HIST_WIDTH        (50)
-#define HIST_HEIGHT       (360)
-#define HIST_BORDER_WIDTH (5)
-
-#define BUTTON_W (15)
-#define BUTTON_H (15)
 
 #define ADD_LOG(fmt, ...)                               \
     do                                                  \
@@ -37,84 +22,7 @@
         gUserApp->addLog(buf);                          \
     } while (0)
 
-class VideoStreamInfo
-{
-public:
-    VideoStreamInfo();
-    virtual ~VideoStreamInfo();
-    bool show();
-    void resetData();
-    void updateFrameTexture(bool updateBySeek);
-    void updateFrameInfo(unsigned int trackIdx, uint32_t frameIdx, H26X_FRAME_TYPE_E frameType);
-
-private:
-    void updateData();
-    bool show_hist(bool updateScroll);
-    void updateFrameInfo(MyAVFrame &frame);
-    void showFrameInfo();
-    void showFrameDisplay();
-
-private:
-    std::map<unsigned int /* trackIdx */, uint32_t> mCurSelectFrame;
-
-    unsigned int mCurSelectTrack       = 0;
-    uint64_t     mHistogramMaxSize     = 0;
-    float        mHistogramWidthScale  = 1;
-    float        mHistogramHeightScale = 1;
-
-    ImVec2 mWinSize;
-    ImVec2 mWinPos;
-
-    ImVec2   mSideBarPos;
-    float    mSideBarWidth    = BUTTON_W;
-    float    mBottomBarHeight = BUTTON_H;
-    ImVec2   mButtonSize;
-    ImVec2   mHistogramPos;
-    ImVec2   mHistogramSize;
-    ImS64    mHistogramScrollPos = 0;
-    uint32_t mHistogramStartIdx  = 0;
-    uint32_t mHistogramEndIdx    = 0;
-
-    uint32_t mTotalVideoFrameCount = 0;
-
-    ImGuiID     mDockId = 0;
-    TextureData mFrameTexture;
-    struct FrameInfo
-    {
-        std::string frameType;
-        uint64_t    frameOffset;
-        uint64_t    frameSize;
-    } mCurrentFrameInfo;
-
-    // Items
-    ImageWindow  mImageDisplay = ImageWindow("Frame Render", true);
-    IImGuiWindow mFrameDisplay = IImGuiWindow("Frame Display");
-
-    ImGuiButton mHeightScaleUpButton    = ImGuiButton("+##height scale");
-    ImGuiButton mHeightScaleDownButton  = ImGuiButton("-##height scale");
-    ImGuiButton mHeightScaleResetButton = ImGuiButton("o##height scale");
-    ImGuiButton mWidthScaleUpButton     = ImGuiButton("+##width scale");
-    ImGuiButton mWidthScaleDownButton   = ImGuiButton("-##width scale");
-    ImGuiButton mWidthScaleResetButton  = ImGuiButton("o##width scale");
-    ImGuiButton mHistMoveLeftButton     = ImGuiButton("<");
-    ImGuiButton mHistMoveRightButton    = ImGuiButton(">");
-
-    ImGuiButton mNextFrameButton = ImGuiButton(">##next frame");
-    ImGuiButton mPrevFrameButton = ImGuiButton("<##prev frame");
-    ImGuiButton mPlayButton      = ImGuiButton("Play##button");
-    ImGuiButton mPauseButton     = ImGuiButton("Pause##button");
-
-    bool     mIsPlaying      = false;
-    uint64_t mLastPlayTimeMs = 0;
-    uint32_t mPlayIntervalMs = 50; // 20fps
-    ImVec2   mPlayControlPanelSize;
-
-    uint64_t       mLastMoveLeftTime  = 0;
-    uint64_t       mLastMoveRightTime = 0;
-    const uint64_t mMoveInterval      = 50;
-};
-
-class Mp4ParserApp : public ImGuiApplication
+class Mp4ParserApp : public ImGui::ImGuiApplication
 {
 public:
     Mp4ParserApp();
@@ -185,13 +93,13 @@ private:
     std::vector<BoxInfo *>   mAllBoxes;
 
     // for table, we use map to store them instead of extract data every time render
-    std::map<const Mp4BoxData *, ImGuiItemTable> mBoxInfoTables;
-    std::vector<ImGuiItemTable>                  mSampleDataTables;
-    std::vector<ImGuiItemTable>                  mChunkDataTables;
+    std::map<const Mp4BoxData *, ImGui::ImGuiItemTable> mBoxInfoTables;
+    std::vector<ImGui::ImGuiItemTable>                  mSampleDataTables;
+    std::vector<ImGui::ImGuiItemTable>                  mChunkDataTables;
     VideoStreamInfo                              mVideoStreamInfo;
 
-    ImGuiBinaryViewer mBoxBinaryViewer = ImGuiBinaryViewer("Box Data##Binary", true);
-    ImGuiBinaryViewer mDataViewer      = ImGuiBinaryViewer("Binary Data##Data");
+    ImGui::ImGuiBinaryViewer mBoxBinaryViewer = ImGui::ImGuiBinaryViewer("Box Data##Binary", true);
+    ImGui::ImGuiBinaryViewer mDataViewer      = ImGui::ImGuiBinaryViewer("Binary Data##Data");
     struct
     {
         std::unique_ptr<uint8_t[]> buffer     = nullptr;

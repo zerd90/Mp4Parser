@@ -22,6 +22,8 @@ using std::string;
 using std::to_string;
 using std::unique_ptr;
 using std::vector;
+using namespace ImGui;
+
 namespace fs = std::filesystem;
 
 // red
@@ -1008,7 +1010,6 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
             [type]() { return type == getAppConfigure().hardwareDecode; });
     }
 
-    addMenu({"Info", "Frame Info"}, nullptr, &getAppConfigure().needShowFrameInfo);
     addMenu({"Info", "More Debug Log"}, nullptr, &getAppConfigure().needShowDebugLog);
 
     getMp4DataShare().onFrameParsed = [this](unsigned int trackIdx, int frameIdx, H26X_FRAME_TYPE_E frameType)

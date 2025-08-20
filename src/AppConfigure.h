@@ -12,7 +12,6 @@ public:
     bool showRawFrameType = false; // show raw frame type in frame table
 
     // not saving
-    bool needShowFrameInfo = true;
     bool showBoxBinaryData = false;
 };
 

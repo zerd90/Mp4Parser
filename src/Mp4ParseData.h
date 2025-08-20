@@ -36,7 +36,7 @@ struct BoxInfo
         FORCE_OPEN,
     } open_state;
 
-    std::map<std::string, std::shared_ptr<ImGuiBinaryViewer>> binaryValueViewers;
+    std::map<std::string, std::shared_ptr<ImGui::ImGuiBinaryViewer>> binaryValueViewers;
 };
 
 enum PARSE_OPERATION_E
@@ -60,7 +60,6 @@ public:
     void                       clear();
 
     int decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats);
-    int decodeNextFrame(uint32_t trackIdx, MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats);
 
 private:
     virtual void run() override;

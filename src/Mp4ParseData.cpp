@@ -10,6 +10,7 @@
 using std::shared_ptr;
 using std::string;
 using std::vector;
+using namespace ImGui;
 
 StdMutex                 gDatalock;
 shared_ptr<Mp4ParseData> gDataShare = nullptr;
@@ -61,7 +62,7 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
             break;
     }
     bool needSeek = false;
-    Z_INFO("lastDecodedFrameIdx=%d\n", mTracksDecodeStat[trackIdx].lastDecodedFrameIdx);
+
     if (mTracksDecodeStat[trackIdx].lastDecodedFrameIdx < 0 || mTracksDecodeStat[trackIdx].lastDecodedFrameIdx >= frameIdx)
     {
         needSeek = true;
@@ -258,40 +259,6 @@ int Mp4ParseData::transformFrameFormat(MyAVFrame &frame, const std::vector<AVPix
     }
 
     frame = transFrame;
-
-    return 0;
-}
-
-int Mp4ParseData::decodeNextFrame(uint32_t trackIdx, MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats)
-{
-
-    auto it = mTracksDecodeStat.find(trackIdx);
-    if (it == mTracksDecodeStat.end())
-    {
-        return decodeFrameAt(trackIdx, 0, frame, acceptFormats);
-    }
-    auto trackDecoder = mVideoDecoders.find(trackIdx);
-    if (trackDecoder == mVideoDecoders.end())
-        return -1;
-
-    auto &samples = tracksInfo[trackIdx].mediaInfo->samplesInfo;
-
-    auto &trackDecodeInfo = it->second;
-    if (trackDecodeInfo.lastDecodedFrameIdx >= (int64_t)samples.size() - 1)
-    {
-        Z_ERR("lastDecodedFrameIdx {} >= samples size {}\n", trackDecodeInfo.lastDecodedFrameIdx,
-              tracksInfo[trackIdx].mediaInfo->samplesInfo.size());
-        return -1;
-    }
-
-    MyAVPacket packet;
-
-    if (decodeOneFrame(trackIdx, frame) < 0)
-    {
-        return -1;
-    }
-
-    transformFrameFormat(frame, acceptFormats);
 
     return 0;
 }

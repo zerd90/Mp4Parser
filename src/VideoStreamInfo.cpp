@@ -2,11 +2,60 @@
 #include "bits.h"
 #define IMGUI_DEFINE_MATH_OPERATORS
 
-#include "Mp4Parser.h"
+#include "VideoStreamInfo.h"
+#include "Mp4ParseData.h"
 #include "AppConfigure.h"
 #include "timer.h"
 
 using std::string;
+using namespace ImGui;
+
+PlayProgressBar::PlayProgressBar() {}
+PlayProgressBar::~PlayProgressBar() {};
+
+void PlayProgressBar::setCallbacks(std::function<void(float progress)> onProgress, std::function<float()> getProgress)
+{
+    mOnProgress  = onProgress;
+    mGetProgress = getProgress;
+}
+
+void PlayProgressBar::show()
+{
+    static const int    sProgressBarHeight = 10;
+    static const ImVec2 sBlockSize         = {10, 20};
+
+    if (mGetProgress)
+        mProgress = mGetProgress();
+    ImVec2 barPos = ImGui::GetCursorScreenPos();
+
+    ImVec2 size = ImGui::GetContentRegionAvail();
+    size.y      = sProgressBarHeight;
+
+    // #C5C5C5FF
+    ImGui::GetWindowDrawList()->AddRectFilled(barPos, barPos + size, ImColor(197, 197, 197, 255));
+    // #4460DD
+    ImGui::GetWindowDrawList()->AddRectFilled(barPos, barPos + ImVec2(size.x * mProgress, size.y),
+                                              ImColor(0x44, 0x60, 0xdd, 255));
+
+    ImVec2 blockPos = barPos + ImVec2(size.x * mProgress, 0);
+    blockPos.x -= sBlockSize.x / 2;
+    blockPos.y -= (sBlockSize.y - sProgressBarHeight) / 2;
+    ImGui::GetWindowDrawList()->AddRectFilled(blockPos, blockPos + sBlockSize, ImColor(255, 255, 255, 255), 2.f);
+
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    {
+        ImVec2 mousePos = ImGui::GetMousePos();
+        if (mousePos.x >= barPos.x && mousePos.x <= barPos.x + size.x && mousePos.y >= barPos.y
+            && mousePos.y <= barPos.y + size.y)
+        {
+            mProgress = (mousePos.x - barPos.x) / size.x;
+            if (mOnProgress)
+                mOnProgress(mProgress);
+        }
+    }
+
+    ImGui::SetCursorScreenPos(barPos + ImVec2(0, sProgressBarHeight + ImGui::GetStyle().ItemSpacing.y));
+}
 
 void VideoStreamInfo::updateFrameInfo(MyAVFrame &frame)
 {
@@ -20,20 +69,15 @@ void VideoStreamInfo::updateFrameInfo(MyAVFrame &frame)
     mCurrentFrameInfo.frameType   = mp4GetFrameTypeStr(samples[mCurSelectFrame[mCurSelectTrack]].frameType);
     mCurrentFrameInfo.frameOffset = samples[mCurSelectFrame[mCurSelectTrack]].sampleOffset;
     mCurrentFrameInfo.frameSize   = samples[mCurSelectFrame[mCurSelectTrack]].sampleSize;
+    mCurrentFrameInfo.ptsMs       = samples[mCurSelectFrame[mCurSelectTrack]].ptsMs;
 }
 
-void VideoStreamInfo::updateFrameTexture(bool updateBySeek)
+void VideoStreamInfo::updateFrameTexture()
 {
     MyAVFrame frame;
-    if (updateBySeek)
-    {
-        if (getMp4DataShare().decodeFrameAt(mCurSelectTrack, mCurSelectFrame[mCurSelectTrack], frame, {AV_PIX_FMT_RGBA}) < 0)
-            return;
-    }
-    else
-    {
-        getMp4DataShare().decodeNextFrame(mCurSelectTrack, frame, {AV_PIX_FMT_RGBA});
-    }
+
+    if (getMp4DataShare().decodeFrameAt(mCurSelectTrack, mCurSelectFrame[mCurSelectTrack], frame, {AV_PIX_FMT_RGBA}) < 0)
+        return;
 
     updateFrameInfo(frame);
 
@@ -77,6 +121,14 @@ VideoStreamInfo::VideoStreamInfo()
     mFrameDisplay.setHasCloseButton(false);
     mFrameDisplay.setSize({640, 360}, ImGuiCond_FirstUseEver);
     mFrameDisplay.setContent([this]() { showFrameDisplay(); });
+
+    mPlayProgressBar.setCallbacks(
+        [this](float progress)
+        {
+            mCurSelectFrame[mCurSelectTrack] = (uint32_t)(progress * mTotalVideoFrameCount);
+            mSelectChanged                   = true;
+        },
+        [this]() -> float { return (float)mCurSelectFrame[mCurSelectTrack] / mTotalVideoFrameCount; });
 }
 
 VideoStreamInfo::~VideoStreamInfo()
@@ -100,17 +152,41 @@ bool VideoStreamInfo::show_hist(bool updateScroll)
     ImGui::GetWindowDrawList()->AddRectFilled(mHistogramPos, mHistogramPos + mHistogramSize,
                                               ImGui::ColorConvertFloat4ToU32(bgColor));
 
-    float  scrollbar_size    = ImGui::GetStyle().ScrollbarSize;
+    float    scrollbar_size    = ImGui::GetStyle().ScrollbarSize;
     // calculate the histogram size
-    ImVec2 histogramShowSize = mHistogramSize - ImVec2(0, scrollbar_size);
+    ImVec2   histogramShowSize = mHistogramSize - ImVec2(0, scrollbar_size);
     // let the max size frame be the max height of the histogram
-    float  histDrawHeightMax = histogramShowSize.y;
-    float  histColWidth      = histDrawHeightMax / 8 * mHistogramWidthScale;
-    int    showCols          = (int)floor(histogramShowSize.x / histColWidth);
-    histogramShowSize.x      = showCols * histColWidth;
-    float colBorderWidth     = histColWidth / 10;
-    float selectLineWidth    = MIN(MAX(1, colBorderWidth), SEL_LINE_WIDTH);
-    ImS64 scrollMax          = MAX(0, mTotalVideoFrameCount - showCols + 1);
+    float    histDrawHeightMax = histogramShowSize.y;
+    float    histColWidth      = histDrawHeightMax / 8 * mHistogramWidthScale;
+    uint32_t showCols          = (uint32_t)floor(histogramShowSize.x / histColWidth);
+    histogramShowSize.x        = showCols * histColWidth;
+    float colBorderWidth       = histColWidth / 10;
+    float selectLineWidth      = MIN(MAX(1, colBorderWidth), SEL_LINE_WIDTH);
+    ImS64 scrollMax            = MAX(0, mTotalVideoFrameCount - showCols + 1);
+
+    if (updateScroll)
+    {
+        if (mCurSelectFrame[mCurSelectTrack] > mHistogramScrollPos + showCols * 2 / 3)
+        {
+            if (mCurSelectFrame[mCurSelectTrack] < showCols * 2 / 3)
+                mHistogramScrollPos = 0;
+            else
+                mHistogramScrollPos = mCurSelectFrame[mCurSelectTrack] - showCols * 2 / 3;
+        }
+        else if (mCurSelectFrame[mCurSelectTrack] < mHistogramScrollPos + showCols / 3)
+        {
+            if (mCurSelectFrame[mCurSelectTrack] < showCols / 3)
+                mHistogramScrollPos = 0;
+            else
+                mHistogramScrollPos = mCurSelectFrame[mCurSelectTrack] - showCols / 3;
+        }
+        printf("mCurSelectFrame %d mHistogramScrollPos = %lld\n", mCurSelectFrame[mCurSelectTrack], mHistogramScrollPos);
+    }
+
+    if (mHistogramScrollPos < 0)
+        mHistogramScrollPos = 0;
+    else if (mHistogramScrollPos > scrollMax)
+        mHistogramScrollPos = scrollMax;
 
     ImGuiWindow *parent_window       = ImGui::GetCurrentWindow();
     ImS64        scroll_visible_size = (ImS64)(ImGui::GetContentRegionAvail().x);
@@ -128,18 +204,6 @@ bool VideoStreamInfo::show_hist(bool updateScroll)
     scrollMax /= 1000;
 
     parent_window->ScrollbarSizes.y = 0.0f; // Restore modified value
-
-    if (updateScroll)
-    {
-        if (mCurSelectFrame[mCurSelectTrack] > mHistogramStartIdx + showCols * 2 / 3 && mHistogramScrollPos < scrollMax)
-        {
-            mHistogramScrollPos++;
-        }
-        else if (mCurSelectFrame[mCurSelectTrack] < mHistogramStartIdx + showCols / 3 && mHistogramScrollPos > 0)
-        {
-            mHistogramScrollPos--;
-        }
-    }
 
     // Scrolling region use remaining space
     ImGui::BeginChild("HistRender##Real", ImVec2(0, -scrollbar_size));
@@ -370,11 +434,17 @@ bool VideoStreamInfo::show()
         {
             mLastPlayTimeMs = curTimeMs;
             mCurSelectFrame[mCurSelectTrack]++;
-            if (mCurSelectFrame[mCurSelectTrack] >= getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
+            if (mCurSelectFrame[mCurSelectTrack] > getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
             {
-                mIsPlaying = false;
+                // loop
+                mCurSelectFrame[mCurSelectTrack] = 0;
+                mHistogramScrollPos              = 0;
+                selectFrame                      = true;
             }
-            playNextFrame = true;
+            else
+            {
+                playNextFrame = true;
+            }
         }
     }
 
@@ -403,7 +473,7 @@ bool VideoStreamInfo::show()
         }
     }
 
-    if (show_hist(playNextFrame || selectFrame))
+    if (show_hist(playNextFrame || selectFrame || mSelectChanged))
     {
         mIsPlaying  = false;
         selectFrame = true;
@@ -519,22 +589,21 @@ bool VideoStreamInfo::show()
 
     ImGui::End();
 
-    if (selectFrame)
-        updateFrameTexture(true);
-    else if (playNextFrame)
-        updateFrameTexture(false);
+    if (selectFrame || playNextFrame || mSelectChanged)
+        updateFrameTexture();
 
+    bool frameChanged = mSelectChanged || selectFrame || playNextFrame;
+    mSelectChanged    = false;
+
+    // set mSelectChanged Here
     mFrameDisplay.show();
 
-    if (getAppConfigure().needShowFrameInfo)
-    {
-        ImGui::SetNextWindowDockID(dockDownId);
-        ImGui::Begin("Frame Info", &getAppConfigure().needShowFrameInfo);
-        showFrameInfo();
-        ImGui::End();
-    }
+    ImGui::SetNextWindowDockID(dockDownId);
+    ImGui::Begin("Frame Info");
+    showFrameInfo();
+    ImGui::End();
 
-    return selectFrame || playNextFrame;
+    return frameChanged;
 }
 
 void VideoStreamInfo::resetData()
@@ -564,7 +633,7 @@ void VideoStreamInfo::updateData()
     mTotalVideoFrameCount = (uint32_t)samples.size();
 
     mHistogramMaxSize = getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack];
-    updateFrameTexture(true);
+    updateFrameTexture();
 }
 
 void VideoStreamInfo::showFrameInfo()
@@ -581,6 +650,7 @@ void VideoStreamInfo::showFrameInfo()
         ImGui::Text("Frame Data Offset: %lld", mCurrentFrameInfo.frameOffset);
         ImGui::Text("Frame Size: %lld", mCurrentFrameInfo.frameSize);
     }
+    ImGui::Text("Frame Pts: %.2fs", mCurrentFrameInfo.ptsMs / 1000.f);
 }
 
 void VideoStreamInfo::updateFrameInfo(unsigned int trackIdx, uint32_t frameIdx, H26X_FRAME_TYPE_E frameType)
@@ -600,6 +670,8 @@ void VideoStreamInfo::showFrameDisplay()
     mImageDisplay.show();
 
     ImVec2 controlPanelStart = ImGui::GetCursorScreenPos();
+    mPlayProgressBar.show();
+
     if (mIsPlaying)
     {
         mPauseButton.show();
