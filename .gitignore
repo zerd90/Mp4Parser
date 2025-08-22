@@ -20,7 +20,7 @@ CMakeUserPresets.json
 
 .cache
 build
-bin
+/bin
 release
 out
 .vs
