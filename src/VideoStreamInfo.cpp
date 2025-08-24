@@ -65,18 +65,28 @@ void VideoStreamInfo::updateFrameInfo(MyAVFrame &frame)
         memset(&mCurrentFrameInfo, 0, sizeof(mCurrentFrameInfo));
         return;
     }
-    auto &samples                 = getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->samplesInfo;
-    mCurrentFrameInfo.frameType   = mp4GetFrameTypeStr(samples[mCurSelectFrame[mCurSelectTrack]].frameType);
-    mCurrentFrameInfo.frameOffset = samples[mCurSelectFrame[mCurSelectTrack]].sampleOffset;
-    mCurrentFrameInfo.frameSize   = samples[mCurSelectFrame[mCurSelectTrack]].sampleSize;
-    mCurrentFrameInfo.ptsMs       = samples[mCurSelectFrame[mCurSelectTrack]].ptsMs;
+    auto &samples = getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->samplesInfo;
+    auto &ptsList = getMp4DataShare().tracksFramePtsList[mCurSelectTrack];
+    if (ptsList.empty())
+    {
+        memset(&mCurrentFrameInfo, 0, sizeof(mCurrentFrameInfo));
+        return;
+    }
+    auto &sample                  = samples[ptsList[mCurSelectFrame[mCurSelectTrack]]];
+    mCurrentFrameInfo.frameIdx    = (uint32_t)sample.sampleIdx;
+    mCurrentFrameInfo.frameType   = mp4GetFrameTypeStr(sample.frameType);
+    mCurrentFrameInfo.frameOffset = sample.sampleOffset;
+    mCurrentFrameInfo.frameSize   = sample.sampleSize;
+    mCurrentFrameInfo.dtsMs       = sample.dtsMs;
+    mCurrentFrameInfo.ptsMs       = sample.ptsMs;
 }
 
 void VideoStreamInfo::updateFrameTexture()
 {
     MyAVFrame frame;
-
-    if (getMp4DataShare().decodeFrameAt(mCurSelectTrack, mCurSelectFrame[mCurSelectTrack], frame, {AV_PIX_FMT_RGBA}) < 0)
+    auto     &ptsList      = getMp4DataShare().tracksFramePtsList[mCurSelectTrack];
+    uint32_t  realFrameIdx = ptsList[mCurSelectFrame[mCurSelectTrack]];
+    if (getMp4DataShare().decodeFrameAt(mCurSelectTrack, realFrameIdx, frame, {AV_PIX_FMT_RGBA}) < 0)
         return;
 
     updateFrameInfo(frame);
@@ -213,8 +223,9 @@ bool VideoStreamInfo::show_hist(bool updateScroll)
 
     for (uint32_t frameIdx = mHistogramStartIdx; frameIdx <= mHistogramEndIdx; frameIdx++)
     {
-        H26X_FRAME_TYPE_E frameType = samples[frameIdx].frameType;
-        uint64_t          frameSize = samples[frameIdx].sampleSize;
+        int               realFrameIdx = getMp4DataShare().tracksFramePtsList[mCurSelectTrack][frameIdx];
+        H26X_FRAME_TYPE_E frameType    = samples[realFrameIdx].frameType;
+        uint64_t          frameSize    = samples[realFrameIdx].sampleSize;
         ImVec2            colSize;
         if (getAppConfigure().logarithmicAxis)
             colSize = ImVec2(histColWidth, logf((float)frameSize) * histDrawHeightMax
@@ -473,13 +484,8 @@ bool VideoStreamInfo::show()
         }
     }
 
-    if (show_hist(playNextFrame || selectFrame || mSelectChanged))
-    {
-        mIsPlaying  = false;
-        selectFrame = true;
-    }
+    if (mNextFrameButton.isClicked() || mNextFrameButton.isActiveFor(500))
 
-    if (mNextFrameButton.isClicked())
     {
         if (mCurSelectFrame[mCurSelectTrack] < getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
         {
@@ -488,13 +494,19 @@ bool VideoStreamInfo::show()
         }
     }
 
-    if (mPrevFrameButton.isClicked())
+    if (mPrevFrameButton.isClicked() || mPrevFrameButton.isActiveFor(500))
     {
         if (mCurSelectFrame[mCurSelectTrack] > 0)
         {
             mCurSelectFrame[mCurSelectTrack]--;
             selectFrame = true;
         }
+    }
+
+    if (show_hist(playNextFrame || selectFrame || mSelectChanged))
+    {
+        mIsPlaying  = false;
+        selectFrame = true;
     }
 
     ImGui::SetCursorScreenPos({mHistogramPos.x, mHistogramPos.y + mHistogramSize.y + ITEM_SPACING});
@@ -612,6 +624,7 @@ void VideoStreamInfo::resetData()
     mCurSelectFrame.clear();
     if (!getMp4DataShare().videoTracksIdx.empty())
     {
+        mCurSelectTrack = getMp4DataShare().videoTracksIdx[0];
         for (auto &trackIdx : getMp4DataShare().videoTracksIdx)
         {
             mCurSelectFrame[trackIdx] = 0;
@@ -638,19 +651,21 @@ void VideoStreamInfo::updateData()
 
 void VideoStreamInfo::showFrameInfo()
 {
-    ImGui::Text("Frame Index: %u", mCurSelectFrame[mCurSelectTrack] + 1); // make it start from 1
-    ImGui::Text("Frame Type: %s", mCurrentFrameInfo.frameType.c_str());
+    ImGui::Text("Play Index: %u", mCurSelectFrame[mCurSelectTrack]);
+    ImGui::Text("Index: %u", mCurrentFrameInfo.frameIdx);
+    ImGui::Text("Type: %s", mCurrentFrameInfo.frameType.c_str());
     if (getAppConfigure().needShowInHex)
     {
-        ImGui::Text("Frame Data Offset: %#llx", mCurrentFrameInfo.frameOffset);
-        ImGui::Text("Frame Size: %#llx", mCurrentFrameInfo.frameSize);
+        ImGui::Text("Data Offset: %#llx", mCurrentFrameInfo.frameOffset);
+        ImGui::Text("Size: %#llx", mCurrentFrameInfo.frameSize);
     }
     else
     {
-        ImGui::Text("Frame Data Offset: %lld", mCurrentFrameInfo.frameOffset);
-        ImGui::Text("Frame Size: %lld", mCurrentFrameInfo.frameSize);
+        ImGui::Text("Data Offset: %lld", mCurrentFrameInfo.frameOffset);
+        ImGui::Text("Size: %lld", mCurrentFrameInfo.frameSize);
     }
-    ImGui::Text("Frame Pts: %.2fs", mCurrentFrameInfo.ptsMs / 1000.f);
+    ImGui::Text("Dts: %.2fs", mCurrentFrameInfo.dtsMs / 1000.f);
+    ImGui::Text("Pts: %.2fs", mCurrentFrameInfo.ptsMs / 1000.f);
 }
 
 void VideoStreamInfo::updateFrameInfo(unsigned int trackIdx, uint32_t frameIdx, H26X_FRAME_TYPE_E frameType)

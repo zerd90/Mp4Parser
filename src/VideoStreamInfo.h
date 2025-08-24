@@ -60,8 +60,9 @@ private:
     void showFrameDisplay();
 
 private:
-    std::map<unsigned int /* trackIdx */, uint32_t> mCurSelectFrame;
-    bool                                            mSelectChanged = false;
+    std::map<unsigned int /* trackIdx */, uint32_t /* frameIdx sort by pts */> mCurSelectFrame;
+
+    bool mSelectChanged = false;
 
     unsigned int mCurSelectTrack       = 0;
     uint64_t     mHistogramMaxSize     = 0;
@@ -87,9 +88,11 @@ private:
     ImGui::TextureData mFrameTexture;
     struct FrameInfo
     {
+        uint32_t    frameIdx;
         std::string frameType;
         uint64_t    frameOffset;
         uint64_t    frameSize;
+        uint64_t    dtsMs;
         uint64_t    ptsMs;
     } mCurrentFrameInfo;
 

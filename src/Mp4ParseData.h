@@ -45,6 +45,21 @@ enum PARSE_OPERATION_E
     OPERATION_PARSE_FRAME_TYPE,
     OPERATION_DECODE_FRAME,
 };
+
+struct FrameCacheData
+{
+    FrameCacheData();
+    virtual ~FrameCacheData();
+    FrameCacheData(FrameCacheData &&)            = default;
+    FrameCacheData &operator=(FrameCacheData &&) = default;
+
+    std::unique_ptr<uint8_t[]> jpegData;
+    uint32_t                   jpegSize = 0;
+    uint32_t                   width    = 0;
+    uint32_t                   height   = 0;
+    uint32_t                   ptsMs    = 0;
+};
+
 class Mp4ParseData : public MyThread
 {
 public:
@@ -58,6 +73,7 @@ public:
     float                      getParseFrameTypeProgress();
     void                       recreateDecoder();
     void                       clear();
+    void                       clearData();
 
     int decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats);
 
@@ -69,6 +85,10 @@ private:
     int sendPacketToDecoder(uint32_t trackIdx, uint32_t frameIdx);
     int decodeOneFrame(uint32_t trackIdx, MyAVFrame &frame);
     int transformFrameFormat(MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats);
+
+    std::unique_ptr<uint8_t[]> encodeFrameToJpeg(MyAVFrame &frame, uint32_t &jpegSize);
+    int                        decodeJpegToFrame(uint8_t *jpegData, uint32_t jpegSize, MyAVFrame &frame);
+    void                       addFrameToCache(MyAVFrame &frame);
 
 public:
     std::string toParseFilePath;
@@ -82,6 +102,8 @@ public:
     std::vector<Mp4TrackInfo> tracksInfo;
 
     std::function<void(unsigned int track_id, int frame_idx, H26X_FRAME_TYPE_E frame_type)> onFrameParsed;
+
+    std::map<int /* trackIdx */, std::vector<uint32_t>> tracksFramePtsList; // sort by pts
 
 private:
     PARSE_OPERATION_E          mOperation = OPERATION_PARSE_FILE;
@@ -100,6 +122,8 @@ private:
         int64_t lastExtractFrameIdx = -1; // if there's B Frame, lastExtractFrameIdx may not equal to lastDecodedFrameIdx
     };
     std::map<int /* trackIdx */, TrackDecodeInfo> mTracksDecodeStat;
+
+    std::vector<FrameCacheData> mDecodeFrameCache; // cache decoded frames as jpeg
 };
 
 Mp4ParseData &getMp4DataShare();

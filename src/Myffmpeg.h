@@ -255,6 +255,9 @@ public:
 
     bool empty() { return nullptr == avFrame->data[0]; }
 
+    void copyPropsTo(AVFrame *dstFrame) { av_frame_copy_props(dstFrame, avFrame); }
+    void copyPropsTo(MyAVFrame &dstFrame) { copyPropsTo(dstFrame.avFrame); }
+
 private:
     AVFrame *avFrame = nullptr;
 };
@@ -764,6 +767,7 @@ public:
         if (codecContext)
         {
             avcodec_free_context(&codecContext);
+            codecContext = nullptr;
         }
         m_codec_type = AVCodecUnknown;
         opened       = false;

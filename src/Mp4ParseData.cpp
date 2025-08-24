@@ -6,6 +6,7 @@
 #include "Mp4Parser.h"
 #include "Mp4ParseData.h"
 #include "AppConfigure.h"
+#include <algorithm>
 
 using std::shared_ptr;
 using std::string;
@@ -55,6 +56,18 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
     if (frameIdx >= samples.size())
         return -1;
 
+    for (auto &cache : mDecodeFrameCache)
+    {
+        if (cache.ptsMs == samples[frameIdx].ptsMs)
+        {
+            Z_INFO("Got Cache With Pts {}\n", cache.ptsMs);
+            decodeJpegToFrame(cache.jpegData.get(), cache.jpegSize, frame);
+            frame->pts = samples[frameIdx].ptsMs;
+            transformFrameFormat(frame, acceptFormats);
+            return 0;
+        }
+    }
+
     uint32_t seekFrameIdx = 0;
     for (seekFrameIdx = frameIdx; seekFrameIdx > 0; seekFrameIdx--)
     {
@@ -63,13 +76,14 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
     }
     bool needSeek = false;
 
-    if (mTracksDecodeStat[trackIdx].lastDecodedFrameIdx < 0 || mTracksDecodeStat[trackIdx].lastDecodedFrameIdx >= frameIdx)
+    if (mTracksDecodeStat[trackIdx].lastDecodedFrameIdx < 0
+        || samples[mTracksDecodeStat[trackIdx].lastDecodedFrameIdx].ptsMs >= samples[frameIdx].ptsMs)
     {
         needSeek = true;
     }
     else
     {
-        for (int64_t i = mTracksDecodeStat[trackIdx].lastDecodedFrameIdx; i <= frameIdx; i++)
+        for (int64_t i = mTracksDecodeStat[trackIdx].lastDecodedFrameIdx + 1; i <= frameIdx; i++)
         {
             if (samples[i].isKeyFrame)
             {
@@ -82,6 +96,7 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
     if (needSeek)
     {
         avcodec_flush_buffers(decoder.get());
+        mDecodeFrameCache.clear();
         mTracksDecodeStat[trackIdx].lastExtractFrameIdx = seekFrameIdx - 1;
     }
     while (1)
@@ -91,7 +106,9 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
             return -1;
         }
 
-        if (mTracksDecodeStat[trackIdx].lastExtractFrameIdx == frameIdx)
+        addFrameToCache(frame);
+
+        if (mTracksDecodeStat[trackIdx].lastDecodedFrameIdx == frameIdx)
         {
             break;
         }
@@ -194,7 +211,9 @@ int Mp4ParseData::decodeOneFrame(uint32_t trackIdx, MyAVFrame &frame)
     {
         return -1;
     }
+
     trackDecodeInfo.lastDecodedFrameIdx = frm->sampleIdx;
+    Z_INFO("frame sampleIdx {}\n", trackDecodeInfo.lastDecodedFrameIdx);
 
     return 0;
 }
@@ -204,8 +223,6 @@ int Mp4ParseData::transformFrameFormat(MyAVFrame &frame, const std::vector<AVPix
     Z_INFO("frame format {}\n", frame->format);
     Z_INFO("frame pict_type {}\n", frame->pict_type);
     Z_INFO("frame pts {}\n", frame->pts);
-
-    Z_INFO("Get Frame Format {}\n", frame->format);
 
     int ret = 0;
 
@@ -224,10 +241,9 @@ int Mp4ParseData::transformFrameFormat(MyAVFrame &frame, const std::vector<AVPix
             return -1;
         }
         Z_INFO("trans format {}\n", trans_frame->format);
+        frame.copyPropsTo(trans_frame);
         frame = trans_frame;
     }
-
-    Z_INFO("frame format {}\n", frame->format);
 
     if (acceptFormats.empty()
         || std::find(acceptFormats.begin(), acceptFormats.end(), (AVPixelFormat)frame->format) != acceptFormats.end())
@@ -258,9 +274,25 @@ int Mp4ParseData::transformFrameFormat(MyAVFrame &frame, const std::vector<AVPix
         return -1;
     }
 
+    frame.copyPropsTo(transFrame);
     frame = transFrame;
+    Z_INFO("trans format {}\n", frame->format);
 
     return 0;
+}
+
+void Mp4ParseData::clearData()
+{
+    tracksInfo.clear();
+    mVideoDecoders.clear();
+    mFmtTransition.clear();
+    tracksMaxSampleSize.clear();
+    videoTracksIdx.clear();
+    mDecodeFrameCache.clear();
+    tracksFramePtsList.clear();
+
+    mTotalVideoFrameCount = 0;
+    mParsingFrameCount    = 0;
 }
 
 void Mp4ParseData::updateData()
@@ -268,10 +300,7 @@ void Mp4ParseData::updateData()
     if (!newDataAvailable)
         return;
 
-    tracksInfo.clear();
-    mVideoDecoders.clear();
-    tracksMaxSampleSize.clear();
-    videoTracksIdx.clear();
+    clearData();
 
     curFilePath = localToUtf8(mParser->getFilePath());
 
@@ -298,6 +327,19 @@ void Mp4ParseData::updateData()
                     *std::dynamic_pointer_cast<Mp4AudioInfo>(track->mediaInfo);
                 break;
         }
+        if (copyTrackInfo.trackType == TRACK_TYPE_VIDEO)
+        {
+            tracksFramePtsList[(int)tracksInfo.size()].reserve(copyTrackInfo.mediaInfo->samplesInfo.size());
+            auto &ptsList = tracksFramePtsList[(int)tracksInfo.size()];
+            auto &samples = copyTrackInfo.mediaInfo->samplesInfo;
+            for (auto &sample : samples)
+            {
+                ptsList.push_back((uint32_t)sample.sampleIdx);
+            }
+            std::sort(ptsList.begin(), ptsList.end(),
+                      [&samples](uint32_t a, uint32_t b) { return samples[a].ptsMs < samples[b].ptsMs; });
+        }
+
         tracksInfo.push_back(copyTrackInfo);
     }
 
@@ -436,6 +478,7 @@ void Mp4ParseData::run()
         newDataAvailable = true;
         if (!dataAvailable)
             dataAvailable = true;
+        updateData();
     }
     else if (OPERATION_PARSE_FRAME_TYPE == mOperation)
     {
@@ -501,15 +544,122 @@ void Mp4ParseData::clear()
         stop();
 
     mParser->clear();
-    mVideoDecoders.clear();
-    tracksInfo.clear();
-    mFmtTransition.clear();
 
-    tracksMaxSampleSize.clear();
-    videoTracksIdx.clear();
+    clearData();
 
-    mTotalVideoFrameCount = 0;
-    mParsingFrameCount    = 0;
-    newDataAvailable      = false;
-    dataAvailable         = false;
+    newDataAvailable = false;
+    dataAvailable    = false;
+}
+
+int createJpegCodecs(int width, int height, MyAVCodecContext &encoder)
+{
+    int ret = 0;
+
+    ret = encoder.init_encoder(AV_CODEC_ID_MJPEG, AVRational{1, 25},
+                               [&width, &height](AVCodecContext *codecCtx)
+                               {
+                                   codecCtx->width   = width;
+                                   codecCtx->height  = height;
+                                   codecCtx->pix_fmt = AV_PIX_FMT_YUVJ444P;
+                                   return 0;
+                               });
+    if (ret < 0)
+    {
+        ADD_APPLICATION_LOG("create jpeg encoder fail %s\n", ffmpeg_make_err_string(ret));
+        return ret;
+    }
+    return 0;
+}
+
+std::unique_ptr<uint8_t[]> Mp4ParseData::encodeFrameToJpeg(MyAVFrame &frame, uint32_t &jpegSize)
+{
+    MyAVCodecContext encoder;
+    MyAVPacket       packet;
+    int              ret = 0;
+
+    if (createJpegCodecs(frame->width, frame->height, encoder) < 0)
+    {
+        Z_ERR("create jpeg encoder fail {}\n", ffmpeg_make_err_string(ret));
+        return nullptr;
+    }
+
+    if (transformFrameFormat(frame, {AV_PIX_FMT_YUVJ444P}) < 0)
+    {
+        Z_ERR("transform frame format fail {}\n", ffmpeg_make_err_string(ret));
+        return nullptr;
+    }
+
+    ret = encoder.send_frame(frame);
+    if (ret < 0)
+    {
+        Z_ERR("encode frame to jpeg fail {}\n", ffmpeg_make_err_string(ret));
+        return nullptr;
+    }
+
+    ret = encoder.receive_packet(packet);
+    if (ret < 0)
+    {
+        Z_ERR("encode frame to jpeg fail {}\n", ffmpeg_make_err_string(ret));
+        return nullptr;
+    }
+    jpegSize      = packet->size;
+    auto jpegData = std::make_unique<uint8_t[]>(packet->size);
+    memcpy(jpegData.get(), packet->data, packet->size);
+    return jpegData;
+}
+
+int Mp4ParseData::decodeJpegToFrame(uint8_t *jpegData, uint32_t jpegSize, MyAVFrame &frame)
+{
+    int              ret = 0;
+    MyAVCodecContext decoder;
+    ret = decoder.init_decoder(AV_CODEC_ID_MJPEG);
+    if (ret < 0)
+    {
+        Z_ERR("create jpeg decoder fail {}\n", ffmpeg_make_err_string(ret));
+        return ret;
+    }
+
+    MyAVPacket packet;
+
+    packet.setBuffer(jpegData, jpegSize);
+
+    ret = decoder.send_packet(packet);
+    if (ret < 0)
+    {
+        Z_ERR("decode jpeg to frame fail {}\n", ffmpeg_make_err_string(ret));
+        return ret;
+    }
+
+    ret = decoder.receive_frame(frame);
+    if (ret < 0)
+    {
+        Z_ERR("decode jpeg to frame fail {}\n", ffmpeg_make_err_string(ret));
+        return ret;
+    }
+
+    return 0;
+}
+
+FrameCacheData::FrameCacheData() {}
+
+FrameCacheData::~FrameCacheData() {}
+
+void Mp4ParseData::addFrameToCache(MyAVFrame &frame)
+{
+    std::unique_ptr<uint8_t[]> jpegData;
+    uint32_t                   jpegSize = 0;
+
+    jpegData = encodeFrameToJpeg(frame, jpegSize);
+    if (jpegData == nullptr)
+        return;
+
+    FrameCacheData cacheData;
+    cacheData.jpegData = std::move(jpegData);
+    cacheData.jpegSize = jpegSize;
+    cacheData.width    = frame->width;
+    cacheData.height   = frame->height;
+    cacheData.ptsMs    = (uint32_t)frame->pts;
+
+    Z_INFO("Add Frame Pts {} To Cache\n", frame->pts);
+    mDecodeFrameCache.emplace_back(std::move(cacheData));
 }
