@@ -913,6 +913,13 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
     addSetting(
         SettingValue::SettingBool, "Show Wrapped Data", [](const void *val) { getAppConfigure().showWrappedData = *(bool *)val; },
         [](void *val) { *(bool *)val = getAppConfigure().showWrappedData; });
+    addSetting(
+        SettingValue::SettingBool, "Show Raw Frame Type",
+        [](const void *val) { getAppConfigure().showRawFrameType = *(bool *)val; },
+        [](void *val) { *(bool *)val = getAppConfigure().showRawFrameType; });
+    addSetting(
+        SettingValue::SettingInt, "Play Frame Rate", [](const void *val) { getAppConfigure().playFrameRate = *(int *)val; },
+        [](void *val) { *(int *)val = getAppConfigure().playFrameRate; });
 
     addMenu({"Menu"});
     addMenu({"Settings"});

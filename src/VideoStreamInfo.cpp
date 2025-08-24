@@ -10,6 +10,8 @@
 using std::string;
 using namespace ImGui;
 
+static int availableFrameRate[] = {1, 5, 10, 15, 20, 24, 30, 60};
+
 PlayProgressBar::PlayProgressBar() {}
 PlayProgressBar::~PlayProgressBar() {};
 
@@ -27,6 +29,9 @@ void PlayProgressBar::show()
     if (mGetProgress)
         mProgress = mGetProgress();
     ImVec2 barPos = ImGui::GetCursorScreenPos();
+    barPos.y += ImGui::GetStyle().ItemSpacing.y;
+
+    ImGui::SetCursorScreenPos(barPos);
 
     ImVec2 size = ImGui::GetContentRegionAvail();
     size.y      = sProgressBarHeight;
@@ -54,7 +59,7 @@ void PlayProgressBar::show()
         }
     }
 
-    ImGui::SetCursorScreenPos(barPos + ImVec2(0, sProgressBarHeight + ImGui::GetStyle().ItemSpacing.y));
+    ImGui::SetCursorScreenPos(barPos + ImVec2(0, sBlockSize.y + ImGui::GetStyle().ItemSpacing.y));
 }
 
 void VideoStreamInfo::updateFrameInfo(MyAVFrame &frame)
@@ -131,6 +136,14 @@ VideoStreamInfo::VideoStreamInfo()
     mFrameDisplay.setHasCloseButton(false);
     mFrameDisplay.setSize({640, 360}, ImGuiCond_FirstUseEver);
     mFrameDisplay.setContent([this]() { showFrameDisplay(); });
+    mFrameDisplay.addChildFlag(ImGuiChildFlags_Borders);
+    mImageDisplay.removeChildFlag(ImGuiChildFlags_Borders);
+
+    mFrameRateCombo.setLabelPosition(true);
+    for (auto rate : availableFrameRate)
+        mFrameRateCombo.addSelectableItem(rate, std::to_string(rate));
+    mFrameRateCombo.addComboFlag(ImGuiComboFlags_WidthFitPreview);
+    mFrameRateCombo.setSelected(1000 / mPlayIntervalMs);
 
     mPlayProgressBar.setCallbacks(
         [this](float progress)
@@ -274,11 +287,14 @@ bool VideoStreamInfo::show_hist(bool updateScroll)
     }
 
     uint64_t curTime = gettime_ms();
-    if (mHistMoveLeftButton.isActive())
+    if (mHistMoveLeftButton.isActiveFor(200))
     {
+        uint64_t interval = mMoveInterval;
+        if (mHistMoveLeftButton.isActiveFor(1000))
+            interval /= 2;
         if (mHistogramScrollPos > 0)
         {
-            if (curTime - mLastMoveLeftTime > mMoveInterval)
+            if (curTime - mLastMoveLeftTime > interval)
             {
                 mLastMoveLeftTime = curTime;
                 mHistogramScrollPos -= 1;
@@ -294,11 +310,14 @@ bool VideoStreamInfo::show_hist(bool updateScroll)
             mHistogramScrollPos = 0;
     }
 
-    if (mHistMoveRightButton.isActive())
+    if (mHistMoveRightButton.isActiveFor(200))
     {
+        uint64_t interval = mMoveInterval;
+        if (mHistMoveRightButton.isActiveFor(1000))
+            interval /= 2;
         if (mHistogramScrollPos < scrollMax)
         {
-            if (curTime - mLastMoveRightTime > mMoveInterval)
+            if (curTime - mLastMoveRightTime > interval)
             {
                 mLastMoveRightTime = curTime;
                 mHistogramScrollPos += 1;
@@ -323,17 +342,6 @@ bool VideoStreamInfo::show_hist(bool updateScroll)
 
 bool VideoStreamInfo::show()
 {
-    if (mDockId == 0)
-        mDockId = ImGui::GetID("StreamInfoDockSpace");
-    ImGuiID dockUpId   = 0;
-    ImGuiID dockDownId = 0;
-
-    int dockFlags = ImGuiDockNodeFlags_AutoHideTabBar | ImGuiDockNodeFlags_NoDockingOverCentralNode;
-
-    ImGui::DockSpace(mDockId, ImVec2(0, 0), dockFlags);
-
-    splitDock(mDockId, ImGuiDir_Up, 0.5f, &dockUpId, &dockDownId);
-
     float textHeight = ImGui::GetTextLineHeight();
 
     float buttonSize = MAX(ImGui::GetStyle().ItemInnerSpacing.y * 2 + textHeight,
@@ -349,9 +357,16 @@ bool VideoStreamInfo::show()
     mHistMoveLeftButton.setItemSize({buttonSize, buttonSize});
     mHistMoveRightButton.setItemSize({buttonSize, buttonSize});
 
-    ImGui::SetNextWindowDockID(dockUpId);
-    ImGui::Begin("Stream Hist", 0, ImGuiWindowFlags_NoScrollbar);
-    ImGui::BeginChild("Stream Hist Child", ImVec2(0, 0), 0, ImGuiWindowFlags_NoScrollbar);
+    ImVec2 avail            = ImGui::GetContentRegionAvail();
+    float  histogramHeight  = 200;
+    ImVec2 startPos         = ImGui::GetCursorScreenPos();
+    float  histogramRatio   = 2 / 3.f;
+    ImVec2 frameDisplaySize = ImVec2(avail.x, avail.y - histogramHeight);
+    ImVec2 histogramWinPos  = startPos + ImVec2(0, frameDisplaySize.y);
+
+    ImGui::SetCursorScreenPos(histogramWinPos);
+    ImGui::BeginChild("Stream Hist", ImVec2(avail.x * histogramRatio, histogramHeight), ImGuiChildFlags_Borders,
+                      ImGuiWindowFlags_NoScrollbar);
 
     mWinSize = ImGui::GetWindowSize();
     mWinPos  = ImGui::GetWindowPos();
@@ -366,7 +381,7 @@ bool VideoStreamInfo::show()
 
     mHistogramPos = mSideBarPos + ImVec2{mSideBarWidth + ITEM_SPACING, MAX(mButtonSize.y, textHeight) / 2};
 
-    mHistogramSize.x = mWinPos.x + mWinSize.x - mHistogramPos.x;
+    mHistogramSize.x = mWinPos.x + mWinSize.x - mHistogramPos.x - ITEM_SPACING;
     mHistogramSize.y = mWinPos.y + mWinSize.y - mHistogramPos.y - mBottomBarHeight;
     mHistogramSize.y = MIN(mHistogramSize.x / 4, mHistogramSize.y);
 
@@ -435,13 +450,18 @@ bool VideoStreamInfo::show()
     }
 
     ImGui::SetCursorScreenPos(mHistogramPos);
+    if (std::find(std::begin(availableFrameRate), std::end(availableFrameRate), getAppConfigure().playFrameRate)
+        == std::end(availableFrameRate))
+    {
+        getAppConfigure().playFrameRate = 20;
+    }
 
     bool playNextFrame = false;
     bool selectFrame   = false;
     if (mIsPlaying)
     {
         uint64_t curTimeMs = gettime_ms();
-        if (curTimeMs - mLastPlayTimeMs >= mMoveInterval)
+        if (curTimeMs - mLastPlayTimeMs >= mPlayIntervalMs)
         {
             mLastPlayTimeMs = curTimeMs;
             mCurSelectFrame[mCurSelectTrack]++;
@@ -597,9 +617,7 @@ bool VideoStreamInfo::show()
         }
     }
 
-    ImGui::EndChild(); // Stream Hist Child
-
-    ImGui::End();
+    ImGui::EndChild(); // Stream Hist
 
     if (selectFrame || playNextFrame || mSelectChanged)
         updateFrameTexture();
@@ -607,11 +625,13 @@ bool VideoStreamInfo::show()
     bool frameChanged = mSelectChanged || selectFrame || playNextFrame;
     mSelectChanged    = false;
 
+    ImGui::SetCursorScreenPos(startPos);
+    mFrameDisplay.setSize(ImVec2(avail.x, avail.y - histogramHeight));
     // set mSelectChanged Here
     mFrameDisplay.show();
 
-    ImGui::SetNextWindowDockID(dockDownId);
-    ImGui::Begin("Frame Info");
+    ImGui::SetCursorScreenPos(histogramWinPos + ImVec2(avail.x * histogramRatio, 0));
+    ImGui::BeginChild("Frame Info", ImVec2(avail.x * (1 - histogramRatio), histogramHeight), ImGuiChildFlags_Borders);
     showFrameInfo();
     ImGui::End();
 
@@ -704,5 +724,15 @@ void VideoStreamInfo::showFrameDisplay()
         }
     }
 
+    SameLine();
+
+    if (mFrameRateCombo.getSelected() != getAppConfigure().playFrameRate)
+        mFrameRateCombo.setSelected(getAppConfigure().playFrameRate);
+    mFrameRateCombo.show();
+    if (mFrameRateCombo.selectChanged())
+    {
+        getAppConfigure().playFrameRate = mFrameRateCombo.getSelected();
+        mPlayIntervalMs                 = 1000 / getAppConfigure().playFrameRate;
+    }
     mPlayControlPanelSize = ImGui::GetCursorScreenPos() - controlPanelStart;
 }

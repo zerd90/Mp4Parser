@@ -84,7 +84,6 @@ private:
 
     uint32_t mTotalVideoFrameCount = 0;
 
-    ImGuiID            mDockId = 0;
     ImGui::TextureData mFrameTexture;
     struct FrameInfo
     {
@@ -97,8 +96,8 @@ private:
     } mCurrentFrameInfo;
 
     // Items
-    ImGui::ImageWindow  mImageDisplay = ImGui::ImageWindow("Frame Render", true);
-    ImGui::IImGuiWindow mFrameDisplay = ImGui::IImGuiWindow("Frame Display");
+    ImGui::ImageWindow       mImageDisplay = ImGui::ImageWindow("Frame Render", true);
+    ImGui::IImGuiChildWindow mFrameDisplay = ImGui::IImGuiChildWindow("Frame Display");
 
     ImGui::ImGuiButton mHeightScaleUpButton    = ImGui::ImGuiButton("+##height scale");
     ImGui::ImGuiButton mHeightScaleDownButton  = ImGui::ImGuiButton("-##height scale");
@@ -113,6 +112,8 @@ private:
     ImGui::ImGuiButton mPrevFrameButton = ImGui::ImGuiButton("<##prev frame");
     ImGui::ImGuiButton mPlayButton      = ImGui::ImGuiButton("Play##button");
     ImGui::ImGuiButton mPauseButton     = ImGui::ImGuiButton("Pause##button");
+
+    ImGui::ImGuiInputCombo mFrameRateCombo = ImGui::ImGuiInputCombo("Framerate");
 
     bool     mIsPlaying      = false;
     uint64_t mLastPlayTimeMs = 0;
