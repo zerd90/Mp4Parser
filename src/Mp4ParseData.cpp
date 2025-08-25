@@ -297,7 +297,7 @@ void Mp4ParseData::clearData()
 
 void Mp4ParseData::updateData()
 {
-    if (!newDataAvailable)
+    if (!dataAvailable)
         return;
 
     clearData();
@@ -475,9 +475,8 @@ void Mp4ParseData::run()
 
             mTotalVideoFrameCount += track->mediaInfo->samplesInfo.size();
         }
-        newDataAvailable = true;
-        if (!dataAvailable)
-            dataAvailable = true;
+
+        dataAvailable = true;
         updateData();
     }
     else if (OPERATION_PARSE_FRAME_TYPE == mOperation)
@@ -521,7 +520,7 @@ void Mp4ParseData::starting()
 {
     mIsContinue = true;
     if (OPERATION_PARSE_FILE == mOperation)
-        newDataAvailable = false;
+        dataAvailable = false;
 }
 
 float Mp4ParseData::getParseFileProgress()
@@ -547,7 +546,6 @@ void Mp4ParseData::clear()
 
     clearData();
 
-    newDataAvailable = false;
     dataAvailable    = false;
 }
 

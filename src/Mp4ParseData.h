@@ -94,7 +94,6 @@ public:
     std::string toParseFilePath;
     std::string curFilePath;
     bool        dataAvailable    = false;
-    bool        newDataAvailable = false;
 
     std::vector<uint64_t> tracksMaxSampleSize;
     std::vector<uint32_t> videoTracksIdx;

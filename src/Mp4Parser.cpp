@@ -226,6 +226,10 @@ void Mp4ParserApp::ShowTreeNode(BoxInfo *cur_box)
         mSomeTreeNodeOpened = true;
         for (auto &sub_box : cur_box->sub_list)
         {
+            if (!sub_box)
+            {
+                Z_WARN("box {} has a null subBox\n", cur_box->box_type);
+            }
             ShowTreeNode(sub_box.get());
         }
         ImGui::TreePop();
@@ -240,7 +244,7 @@ void Mp4ParserApp::ShowBoxesTreeView()
 
     ImGui::BeginChild("Boxes Tree");
 
-    if (getMp4DataShare().dataAvailable)
+    if (mVirtFileBox)
     {
         ShowTreeNode(mVirtFileBox.get());
     }
@@ -955,29 +959,7 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
                 }
             });
 
-    addMenu({"Menu", "Reset"},
-            [this]()
-            {
-                getMp4DataShare().clear();
-
-                mToParseFile.clear();
-                cur_box_select      = nullptr;
-                cur_track_select    = -1;
-                m_box_num           = 0;
-                mSomeTreeNodeOpened = false;
-                mVirtFileBox.reset();
-                mAllBoxes.clear();
-                mBoxInfoTables.clear();
-                mSampleDataTables.clear();
-                mChunkDataTables.clear();
-                mVideoStreamInfo.resetData();
-
-                mBinaryData.buffer.reset();
-                mBinaryData.dataSize   = 0;
-                mBinaryData.bufferSize = 0;
-                setTitle(mApplicationName);
-                setStatus("");
-            });
+    addMenu({"Menu", "Reset"}, [this]() { reset(); });
 
     addMenu({"Settings", "Show Offset/Size in Hex"}, nullptr, &getAppConfigure().needShowInHex);
     addMenu({"Settings", "Binary View"}, nullptr, &getAppConfigure().showBoxBinaryData);
@@ -1033,6 +1015,29 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
 }
 
 Mp4ParserApp::~Mp4ParserApp() {}
+
+void Mp4ParserApp::reset()
+{
+    getMp4DataShare().clear();
+
+    mToParseFile.clear();
+    cur_box_select      = nullptr;
+    cur_track_select    = -1;
+    m_box_num           = 0;
+    mSomeTreeNodeOpened = false;
+    mVirtFileBox.reset();
+    mAllBoxes.clear();
+    mBoxInfoTables.clear();
+    mSampleDataTables.clear();
+    mChunkDataTables.clear();
+    mVideoStreamInfo.resetData();
+
+    mBinaryData.buffer.reset();
+    mBinaryData.dataSize   = 0;
+    mBinaryData.bufferSize = 0;
+    setTitle(mApplicationName);
+    setStatus("");
+}
 
 void Mp4ParserApp::WrapDatacheckBox()
 {
@@ -1183,7 +1188,7 @@ bool Mp4ParserApp::renderUI()
         getMp4DataShare().stop();
         if (OPERATION_PARSE_FILE == getMp4DataShare().getCurrentOperation())
         {
-            if (getMp4DataShare().newDataAvailable)
+            if (getMp4DataShare().dataAvailable)
             {
                 resetFileInfo();
                 string   filePathStr = getMp4DataShare().getParser()->getFilePath();
@@ -1415,6 +1420,8 @@ void Mp4ParserApp::startParseFile(const std::string &file_path)
     {
         getMp4DataShare().stop();
     }
+
+    reset();
 
     getMp4DataShare().toParseFilePath = file_path;
     if (getMp4DataShare().startParse(OPERATION_PARSE_FILE) < 0)

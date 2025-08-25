@@ -63,6 +63,7 @@ private:
     void saveCurrentData(const std::string &fileName, size_t size);
 
     int updateData(int type, size_t trackIdx, size_t itemIdx);
+    void reset();
 
 private:
     std::string mToParseFile;

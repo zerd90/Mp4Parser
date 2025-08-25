@@ -667,6 +667,9 @@ void VideoStreamInfo::updateData()
     mTotalVideoFrameCount = (uint32_t)samples.size();
 
     mHistogramMaxSize = getMp4DataShare().tracksMaxSampleSize[mCurSelectTrack];
+
+    mIsPlaying = false;
+
     updateFrameTexture();
 }
 
