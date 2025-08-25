@@ -340,6 +340,9 @@ bool VideoStreamInfo::show_hist(bool updateScroll)
     return frameSelectChanged;
 }
 
+#define HISTOGRAM_HEIGHT      (150)
+#define HISTOGRAM_WIDTH_RATIO (2 / 3.f)
+
 bool VideoStreamInfo::show()
 {
     float textHeight = ImGui::GetTextLineHeight();
@@ -358,14 +361,12 @@ bool VideoStreamInfo::show()
     mHistMoveRightButton.setItemSize({buttonSize, buttonSize});
 
     ImVec2 avail            = ImGui::GetContentRegionAvail();
-    float  histogramHeight  = 200;
     ImVec2 startPos         = ImGui::GetCursorScreenPos();
-    float  histogramRatio   = 2 / 3.f;
-    ImVec2 frameDisplaySize = ImVec2(avail.x, avail.y - histogramHeight);
+    ImVec2 frameDisplaySize = ImVec2(avail.x, avail.y - HISTOGRAM_HEIGHT);
     ImVec2 histogramWinPos  = startPos + ImVec2(0, frameDisplaySize.y);
 
     ImGui::SetCursorScreenPos(histogramWinPos);
-    ImGui::BeginChild("Stream Hist", ImVec2(avail.x * histogramRatio, histogramHeight), ImGuiChildFlags_Borders,
+    ImGui::BeginChild("Stream Hist", ImVec2(avail.x * HISTOGRAM_WIDTH_RATIO, HISTOGRAM_HEIGHT), ImGuiChildFlags_Borders,
                       ImGuiWindowFlags_NoScrollbar);
 
     mWinSize = ImGui::GetWindowSize();
@@ -626,14 +627,14 @@ bool VideoStreamInfo::show()
     mSelectChanged    = false;
 
     ImGui::SetCursorScreenPos(startPos);
-    mFrameDisplay.setSize(ImVec2(avail.x, avail.y - histogramHeight));
+    mFrameDisplay.setSize(ImVec2(avail.x, avail.y - HISTOGRAM_HEIGHT));
     // set mSelectChanged Here
     mFrameDisplay.show();
 
-    ImGui::SetCursorScreenPos(histogramWinPos + ImVec2(avail.x * histogramRatio, 0));
-    ImGui::BeginChild("Frame Info", ImVec2(avail.x * (1 - histogramRatio), histogramHeight), ImGuiChildFlags_Borders);
+    ImGui::SetCursorScreenPos(histogramWinPos + ImVec2(avail.x * HISTOGRAM_WIDTH_RATIO, 0));
+    ImGui::BeginChild("Frame Info", ImVec2(avail.x * (1 - HISTOGRAM_WIDTH_RATIO), HISTOGRAM_HEIGHT), ImGuiChildFlags_Borders);
     showFrameInfo();
-    ImGui::End();
+    ImGui::EndChild();
 
     return frameChanged;
 }
