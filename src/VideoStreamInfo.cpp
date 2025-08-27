@@ -286,7 +286,11 @@ bool VideoStreamInfo::show_hist(bool updateScroll)
         }
     }
 
-    uint64_t curTime = gettime_ms();
+    uint64_t curTime    = gettime_ms();
+    bool     isHovered  = IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    bool     wheelXDown = IsKeyDown(ImGuiKey_MouseWheelX);
+    bool     wheelYDown = IsKeyDown(ImGuiKey_MouseWheelY);
+
     if (mHistMoveLeftButton.isActiveFor(200))
     {
         uint64_t interval = mMoveInterval;
@@ -298,17 +302,18 @@ bool VideoStreamInfo::show_hist(bool updateScroll)
             {
                 mLastMoveLeftTime = curTime;
                 mHistogramScrollPos -= 1;
-                if (mHistogramScrollPos < 0)
-                    mHistogramScrollPos = 0;
             }
         }
     }
     else if (mHistMoveLeftButton.isClicked())
     {
         mHistogramScrollPos -= 1;
-        if (mHistogramScrollPos < 0)
-            mHistogramScrollPos = 0;
     }
+
+    if (isHovered && wheelXDown && GetIO().MouseWheelH < 0)
+        mHistogramScrollPos += (int)(GetIO().MouseWheelH * 5);
+    if (mHistogramScrollPos < 0)
+        mHistogramScrollPos = 0;
 
     if (mHistMoveRightButton.isActiveFor(200))
     {
@@ -321,16 +326,36 @@ bool VideoStreamInfo::show_hist(bool updateScroll)
             {
                 mLastMoveRightTime = curTime;
                 mHistogramScrollPos += 1;
-                if (mHistogramScrollPos > scrollMax)
-                    mHistogramScrollPos = scrollMax;
             }
         }
     }
     else if (mHistMoveRightButton.isClicked())
     {
         mHistogramScrollPos += 1;
-        if (mHistogramScrollPos > scrollMax)
-            mHistogramScrollPos = scrollMax;
+    }
+
+    if (isHovered && wheelXDown && GetIO().MouseWheelH > 0)
+        mHistogramScrollPos += (int)(GetIO().MouseWheelH * 5);
+    if (mHistogramScrollPos > scrollMax)
+        mHistogramScrollPos = scrollMax;
+
+    if (mWidthScaleDownButton.isClicked() || (isHovered && wheelYDown && GetIO().MouseWheel < 0))
+    {
+        if (mHistogramWidthScale > HIST_W_MIN_SCALE)
+        {
+            mHistogramWidthScale /= 2.f;
+            if (mHistogramWidthScale < HIST_W_MIN_SCALE)
+                mHistogramWidthScale = HIST_W_MIN_SCALE;
+        }
+    }
+    if (mWidthScaleUpButton.isClicked() || (isHovered && wheelYDown && GetIO().MouseWheel > 0))
+    {
+        if (mHistogramWidthScale < HIST_W_MAX_SCALE)
+        {
+            mHistogramWidthScale *= 2.f;
+            if (mHistogramWidthScale > HIST_W_MAX_SCALE)
+                mHistogramWidthScale = HIST_W_MAX_SCALE;
+        }
     }
 
     ImGui::EndChild();
@@ -541,7 +566,7 @@ bool VideoStreamInfo::show()
     buttonPos = ImVec2(mHistogramPos.x - mWidthScaleResetButton.itemSize().x - ITEM_SPACING,
                        mHistogramPos.y + mHistogramSize.y + textHeight + ITEM_SPACING * 2);
     ImGui::SetCursorScreenPos(buttonPos);
-    mWidthScaleResetButton.show();
+    mWidthScaleResetButton.showDisabled(1.f == mHistogramWidthScale);
     if (mWidthScaleResetButton.isClicked())
     {
         mHistogramWidthScale = 1.f;
@@ -550,28 +575,10 @@ bool VideoStreamInfo::show()
     buttonPos = buttonPos + ImVec2(mWidthScaleResetButton.itemSize().x + ITEM_SPACING, 0);
     ImGui::SetCursorScreenPos(buttonPos);
     mWidthScaleDownButton.showDisabled(mHistogramWidthScale <= HIST_W_MIN_SCALE);
-    if (mWidthScaleDownButton.isClicked())
-    {
-        if (mHistogramWidthScale > HIST_W_MIN_SCALE)
-        {
-            mHistogramWidthScale /= 2.f;
-            if (mHistogramWidthScale < HIST_W_MIN_SCALE)
-                mHistogramWidthScale = HIST_W_MIN_SCALE;
-        }
-    }
 
     ImGui::SetCursorScreenPos(ImVec2(mHistogramPos.x + mHistogramSize.x - mWidthScaleUpButton.itemSize().x,
                                      mHistogramPos.y + mHistogramSize.y + textHeight + ITEM_SPACING * 2));
     mWidthScaleUpButton.showDisabled(mHistogramWidthScale >= HIST_W_MAX_SCALE);
-    if (mWidthScaleUpButton.isClicked())
-    {
-        if (mHistogramWidthScale < HIST_W_MAX_SCALE)
-        {
-            mHistogramWidthScale *= 2.f;
-            if (mHistogramWidthScale > HIST_W_MAX_SCALE)
-                mHistogramWidthScale = HIST_W_MAX_SCALE;
-        }
-    }
 
     ImGui::SetCursorScreenPos(mWidthScaleDownButton.itemPos() + ImVec2(mWidthScaleDownButton.itemSize().x + ITEM_SPACING, 0));
     mHistMoveLeftButton.showDisabled(mHistogramStartIdx <= 0);
