@@ -924,6 +924,9 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
     addSetting(
         SettingValue::SettingInt, "Play Frame Rate", [](const void *val) { getAppConfigure().playFrameRate = *(int *)val; },
         [](void *val) { *(int *)val = getAppConfigure().playFrameRate; });
+    addSetting(
+        SettingValue::SettingBool, "Show Frame Info", [](const void *val) { getAppConfigure().showFrameInfo = *(bool *)val; },
+        [](void *val) { *(bool *)val = getAppConfigure().showFrameInfo; });
 
     addMenu({"Menu"});
     addMenu({"Settings"});
@@ -1228,7 +1231,7 @@ bool Mp4ParserApp::renderUI()
         ImGui::EndTabItem();
     }
 
-    if (!getMp4DataShare().videoTracksIdx.empty() && ImGui::BeginTabItem("Stream Info"))
+    if (ImGui::BeginTabItem("Video Stream"))
     {
         mVideoStreamInfo.show();
 

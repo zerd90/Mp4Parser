@@ -11,6 +11,7 @@ public:
     bool showWrappedData  = false; // show wrapped data in binary viewer, append SPS/PPS/VPS, transform start code
     bool showRawFrameType = false; // show raw frame type in frame table
     int  playFrameRate    = 20;
+    bool showFrameInfo    = true;
 
     // not saving
     bool showBoxBinaryData = false;

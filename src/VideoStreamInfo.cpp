@@ -159,7 +159,7 @@ VideoStreamInfo::~VideoStreamInfo()
     freeTexture(&mFrameTexture);
 }
 
-bool VideoStreamInfo::show_hist(bool updateScroll)
+bool VideoStreamInfo::drawHistogram(bool updateScroll)
 {
 
     bool frameSelectChanged = false;
@@ -365,10 +365,10 @@ bool VideoStreamInfo::show_hist(bool updateScroll)
     return frameSelectChanged;
 }
 
-#define HISTOGRAM_HEIGHT      (150)
+#define HISTOGRAM_HEIGHT      (180)
 #define HISTOGRAM_WIDTH_RATIO (2 / 3.f)
 
-bool VideoStreamInfo::show()
+bool VideoStreamInfo::showHistogramAndFrameInfo(bool updateScroll)
 {
     float textHeight = ImGui::GetTextLineHeight();
 
@@ -385,12 +385,8 @@ bool VideoStreamInfo::show()
     mHistMoveLeftButton.setItemSize({buttonSize, buttonSize});
     mHistMoveRightButton.setItemSize({buttonSize, buttonSize});
 
-    ImVec2 avail            = ImGui::GetContentRegionAvail();
-    ImVec2 startPos         = ImGui::GetCursorScreenPos();
-    ImVec2 frameDisplaySize = ImVec2(avail.x, avail.y - HISTOGRAM_HEIGHT);
-    ImVec2 histogramWinPos  = startPos + ImVec2(0, frameDisplaySize.y);
+    ImVec2 avail = ImGui::GetContentRegionAvail();
 
-    ImGui::SetCursorScreenPos(histogramWinPos);
     ImGui::BeginChild("Stream Hist", ImVec2(avail.x * HISTOGRAM_WIDTH_RATIO, HISTOGRAM_HEIGHT), ImGuiChildFlags_Borders,
                       ImGuiWindowFlags_NoScrollbar);
 
@@ -482,28 +478,7 @@ bool VideoStreamInfo::show()
         getAppConfigure().playFrameRate = 20;
     }
 
-    bool playNextFrame = false;
-    bool selectFrame   = false;
-    if (mIsPlaying)
-    {
-        uint64_t curTimeMs = gettime_ms();
-        if (curTimeMs - mLastPlayTimeMs >= mPlayIntervalMs)
-        {
-            mLastPlayTimeMs = curTimeMs;
-            mCurSelectFrame[mCurSelectTrack]++;
-            if (mCurSelectFrame[mCurSelectTrack] > getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
-            {
-                // loop
-                mCurSelectFrame[mCurSelectTrack] = 0;
-                mHistogramScrollPos              = 0;
-                selectFrame                      = true;
-            }
-            else
-            {
-                playNextFrame = true;
-            }
-        }
-    }
+    bool selectFrame = false;
 
     if (mFrameDisplay.isFocused())
     {
@@ -549,7 +524,7 @@ bool VideoStreamInfo::show()
         }
     }
 
-    if (show_hist(playNextFrame || selectFrame || mSelectChanged))
+    if (drawHistogram(updateScroll || selectFrame || mSelectChanged))
     {
         mIsPlaying  = false;
         selectFrame = true;
@@ -627,6 +602,54 @@ bool VideoStreamInfo::show()
 
     ImGui::EndChild(); // Stream Hist
 
+    return selectFrame;
+}
+
+bool VideoStreamInfo::show()
+{
+    if (getMp4DataShare().videoTracksIdx.empty())
+        return false;
+
+    ImVec2 contentRegion = ImGui::GetContentRegionAvail();
+    ImVec2 startPos      = ImGui::GetCursorScreenPos();
+    ImVec2 frameDisplaySize =
+        getAppConfigure().showFrameInfo ? ImVec2(contentRegion.x, contentRegion.y - HISTOGRAM_HEIGHT) : contentRegion;
+
+    bool playNextFrame = false;
+    bool selectFrame   = false;
+    if (mIsPlaying)
+    {
+        uint64_t curTimeMs = gettime_ms();
+        if (curTimeMs - mLastPlayTimeMs >= mPlayIntervalMs)
+        {
+            mLastPlayTimeMs = curTimeMs;
+            mCurSelectFrame[mCurSelectTrack]++;
+            if (mCurSelectFrame[mCurSelectTrack] > getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
+            {
+                // loop
+                mCurSelectFrame[mCurSelectTrack] = 0;
+                mHistogramScrollPos              = 0;
+                selectFrame                      = true;
+            }
+            else
+            {
+                playNextFrame = true;
+            }
+        }
+    }
+
+    if (getAppConfigure().showFrameInfo)
+    {
+        ImVec2 histogramWinPos = startPos + ImVec2(0, frameDisplaySize.y);
+        ImGui::SetCursorScreenPos(histogramWinPos);
+        selectFrame = showHistogramAndFrameInfo(playNextFrame || selectFrame);
+        ImGui::SetCursorScreenPos(histogramWinPos + ImVec2(contentRegion.x * HISTOGRAM_WIDTH_RATIO, 0));
+        ImGui::BeginChild("Frame Info", ImVec2(contentRegion.x * (1 - HISTOGRAM_WIDTH_RATIO), HISTOGRAM_HEIGHT),
+                          ImGuiChildFlags_Borders);
+        showFrameInfo();
+        ImGui::EndChild();
+    }
+
     if (selectFrame || playNextFrame || mSelectChanged)
         updateFrameTexture();
 
@@ -634,14 +657,9 @@ bool VideoStreamInfo::show()
     mSelectChanged    = false;
 
     ImGui::SetCursorScreenPos(startPos);
-    mFrameDisplay.setSize(ImVec2(avail.x, avail.y - HISTOGRAM_HEIGHT));
-    // set mSelectChanged Here
+    mFrameDisplay.setSize(frameDisplaySize);
+    // set mSelectChanged inside
     mFrameDisplay.show();
-
-    ImGui::SetCursorScreenPos(histogramWinPos + ImVec2(avail.x * HISTOGRAM_WIDTH_RATIO, 0));
-    ImGui::BeginChild("Frame Info", ImVec2(avail.x * (1 - HISTOGRAM_WIDTH_RATIO), HISTOGRAM_HEIGHT), ImGuiChildFlags_Borders);
-    showFrameInfo();
-    ImGui::EndChild();
 
     return frameChanged;
 }
@@ -745,5 +763,22 @@ void VideoStreamInfo::showFrameDisplay()
         getAppConfigure().playFrameRate = mFrameRateCombo.getSelected();
         mPlayIntervalMs                 = 1000 / getAppConfigure().playFrameRate;
     }
+
+    SameLine();
+    if (getAppConfigure().showFrameInfo)
+    {
+        if (Button("Hide Frame Info"))
+        {
+            getAppConfigure().showFrameInfo = false;
+        }
+    }
+    else
+    {
+        if (Button("Show Frame Info"))
+        {
+            getAppConfigure().showFrameInfo = true;
+        }
+    }
+
     mPlayControlPanelSize = ImGui::GetCursorScreenPos() - controlPanelStart;
 }

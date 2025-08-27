@@ -54,10 +54,11 @@ public:
 
 private:
     void updateData();
-    bool show_hist(bool updateScroll);
+    bool drawHistogram(bool updateScroll);
     void updateFrameInfo(MyAVFrame &frame);
     void showFrameInfo();
     void showFrameDisplay();
+    bool showHistogramAndFrameInfo(bool updateScroll);
 
 private:
     std::map<unsigned int /* trackIdx */, uint32_t /* frameIdx sort by pts */> mCurSelectFrame;
