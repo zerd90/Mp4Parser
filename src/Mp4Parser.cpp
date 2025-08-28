@@ -1199,7 +1199,6 @@ bool Mp4ParserApp::renderUI()
                 string   newTitle = filePath.filename().string();
                 newTitle          = localToUtf8(newTitle);
                 setTitle(newTitle);
-                setApplicationTitle(newTitle);
 
                 getMp4DataShare().startParse(OPERATION_PARSE_FRAME_TYPE);
                 setStatus(combineString("Parse ", getProperFilePathForStatus(getMp4DataShare().curFilePath),
