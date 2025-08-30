@@ -104,11 +104,15 @@ bool isItemClicked(IMGUI_MOUSE_BUTTON *button)
 }
 ImS64 getBoxSize(void *boxInfo)
 {
+    if (!boxInfo)
+        return 0;
     auto pBoxInfo = static_cast<BoxInfo *>(boxInfo);
     return pBoxInfo->boxSize;
 }
 uint8_t getBoxData(ImS64 offset, void *boxInfo)
 {
+    if (!boxInfo)
+        return 0;
     auto pBoxInfo = static_cast<BoxInfo *>(boxInfo);
     if (!pBoxInfo->buffer || offset < pBoxInfo->bufferedOffset || offset >= pBoxInfo->bufferedOffset + pBoxInfo->bufferSize)
     {
@@ -142,6 +146,8 @@ uint8_t getBoxData(ImS64 offset, void *boxInfo)
 
 void SaveBoxData(const string &filePath, void *boxInfo)
 {
+    if (!boxInfo)
+        return;
     auto  pBoxInfo = static_cast<BoxInfo *>(boxInfo);
     FILE *fp       = fopen(filePath.c_str(), "wb");
     if (!fp)
@@ -566,11 +572,15 @@ void Mp4ParserApp::sampleTableClicked(size_t trackIdx, size_t rowIdx, size_t col
     mDataViewer.setDataCallbacks(
         [](void *userData) -> ImS64
         {
+            if (!userData)
+                return 0;
             auto pSample = static_cast<Mp4SampleItem *>(userData);
             return pSample->sampleSize;
         },
         [this](ImS64 offset, void *userData) -> uint8_t
         {
+            if (!userData)
+                return 0;
             auto pSample = static_cast<Mp4SampleItem *>(userData);
             if (offset < 0 || offset >= (int64_t)pSample->sampleSize)
                 return 0;
@@ -578,6 +588,8 @@ void Mp4ParserApp::sampleTableClicked(size_t trackIdx, size_t rowIdx, size_t col
         },
         [this](const string &fileName, void *userData)
         {
+            if (!userData)
+                return;
             auto pSample = static_cast<Mp4SampleItem *>(userData);
             saveCurrentData(fileName, pSample->sampleSize);
         });
@@ -1038,6 +1050,11 @@ void Mp4ParserApp::reset()
     mBinaryData.buffer.reset();
     mBinaryData.dataSize   = 0;
     mBinaryData.bufferSize = 0;
+
+    mBoxBinaryViewer.setUserData(nullptr);
+    mDataViewer.setUserData(nullptr);
+    mDataViewer.close();
+
     setTitle(mApplicationName);
     setStatus("");
 }
