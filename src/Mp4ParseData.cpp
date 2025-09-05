@@ -40,6 +40,65 @@ int Mp4ParseData::startParse(PARSE_OPERATION_E op)
     return start();
 }
 
+int Mp4ParseData::seekToFrame(uint32_t trackIdx, uint32_t frameIdx, uint32_t &keyFrameIdx)
+{
+    auto trackDecoder = mVideoDecoders.find(trackIdx);
+    if (trackDecoder == mVideoDecoders.end())
+        return -1;
+
+    auto &decoder = trackDecoder->second;
+
+    MyAVPacket packet;
+
+    auto &samples = tracksInfo[trackIdx].mediaInfo->samplesInfo;
+    if (frameIdx >= samples.size())
+        return -1;
+
+    for (auto &cache : mDecodeFrameCache)
+    {
+        if (cache.ptsMs == samples[frameIdx].ptsMs)
+        {
+            Z_INFO("Got Cache With Pts {}\n", cache.ptsMs);
+            return 1;
+        }
+    }
+
+    uint32_t seekFrameIdx = 0;
+    for (seekFrameIdx = frameIdx; seekFrameIdx > 0; seekFrameIdx--)
+    {
+        if (samples[seekFrameIdx].isKeyFrame)
+            break;
+    }
+    bool needSeek = false;
+
+    if (mTracksDecodeStat[trackIdx].lastDecodedFrameIdx < 0
+        || samples[mTracksDecodeStat[trackIdx].lastDecodedFrameIdx].ptsMs >= samples[frameIdx].ptsMs)
+    {
+        needSeek = true;
+    }
+    else
+    {
+        for (int64_t i = mTracksDecodeStat[trackIdx].lastDecodedFrameIdx + 1; i <= frameIdx; i++)
+        {
+            if (samples[i].isKeyFrame)
+            {
+                needSeek = true;
+                break;
+            }
+        }
+    }
+
+    if (needSeek)
+    {
+        avcodec_flush_buffers(decoder.get());
+        mDecodeFrameCache.clear();
+        mTracksDecodeStat[trackIdx].lastExtractFrameIdx = seekFrameIdx - 1;
+        keyFrameIdx                                     = seekFrameIdx;
+        return 0;
+    }
+    return 2;
+}
+
 int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame &frame,
                                 const std::vector<AVPixelFormat> &acceptFormats)
 {
@@ -147,7 +206,7 @@ int Mp4ParseData::sendPacketToDecoder(uint32_t trackIdx, uint32_t frameIdx)
     packet.setBuffer(videoSample.sampleData.get(), (int)videoSample.dataSize);
     packet->pts = videoSample.ptsMs;
     packet->dts = videoSample.dtsMs;
-    ret         = decoder.send_packet(packet);
+    ret         = decoder.sendPacket(packet);
     if (ret < 0)
     {
         Z_ERR("send_packet fail: {}\n", ffmpeg_make_err_string(ret));
@@ -178,7 +237,7 @@ int Mp4ParseData::decodeOneFrame(uint32_t trackIdx, MyAVFrame &frame)
     while (1)
     {
         frame.clear();
-        ret = decoder.receive_frame(frame);
+        ret = decoder.receiveFrame(frame);
         if (ret == 0)
         {
             printf("get frame pts %" PRId64 "\n", frame->pts);
@@ -201,7 +260,7 @@ int Mp4ParseData::decodeOneFrame(uint32_t trackIdx, MyAVFrame &frame)
         extractFrameIdx++;
         if (extractFrameIdx == samples.size())
         {
-            ret = decoder.send_packet(nullptr);
+            ret = decoder.sendPacket(nullptr);
         }
     }
 
@@ -267,7 +326,7 @@ int Mp4ParseData::transformFrameFormat(MyAVFrame &frame, const std::vector<AVPix
         return -1;
     }
 
-    ret = mFmtTransition.scale_frame(transFrame, frame);
+    ret = mFmtTransition.scaleFrame(transFrame, frame);
     if (ret < 0)
     {
         Z_ERR("sws_scale err {}\n", ffmpeg_make_err_string(ret));
@@ -401,7 +460,7 @@ void Mp4ParseData::recreateDecoder()
 
         auto &decoder = mVideoDecoders.insert(std::make_pair(trackIdx, MyAVCodecContext())).first->second;
 
-        int ret = decoder.init_decoder(
+        int ret = decoder.initDecoder(
             codecID,
             [](AVCodecContext *ctx)
             {
@@ -546,21 +605,21 @@ void Mp4ParseData::clear()
 
     clearData();
 
-    dataAvailable    = false;
+    dataAvailable = false;
 }
 
 int createJpegCodecs(int width, int height, MyAVCodecContext &encoder)
 {
     int ret = 0;
 
-    ret = encoder.init_encoder(AV_CODEC_ID_MJPEG, AVRational{1, 25},
-                               [&width, &height](AVCodecContext *codecCtx)
-                               {
-                                   codecCtx->width   = width;
-                                   codecCtx->height  = height;
-                                   codecCtx->pix_fmt = AV_PIX_FMT_YUVJ444P;
-                                   return 0;
-                               });
+    ret = encoder.initEncoder(AV_CODEC_ID_MJPEG, AVRational{1, 25},
+                              [&width, &height](AVCodecContext *codecCtx)
+                              {
+                                  codecCtx->width   = width;
+                                  codecCtx->height  = height;
+                                  codecCtx->pix_fmt = AV_PIX_FMT_YUVJ444P;
+                                  return 0;
+                              });
     if (ret < 0)
     {
         ADD_APPLICATION_LOG("create jpeg encoder fail %s\n", ffmpeg_make_err_string(ret));
@@ -587,14 +646,14 @@ std::unique_ptr<uint8_t[]> Mp4ParseData::encodeFrameToJpeg(MyAVFrame &frame, uin
         return nullptr;
     }
 
-    ret = encoder.send_frame(frame);
+    ret = encoder.sendFrame(frame);
     if (ret < 0)
     {
         Z_ERR("encode frame to jpeg fail {}\n", ffmpeg_make_err_string(ret));
         return nullptr;
     }
 
-    ret = encoder.receive_packet(packet);
+    ret = encoder.receivePacket(packet);
     if (ret < 0)
     {
         Z_ERR("encode frame to jpeg fail {}\n", ffmpeg_make_err_string(ret));
@@ -610,7 +669,7 @@ int Mp4ParseData::decodeJpegToFrame(uint8_t *jpegData, uint32_t jpegSize, MyAVFr
 {
     int              ret = 0;
     MyAVCodecContext decoder;
-    ret = decoder.init_decoder(AV_CODEC_ID_MJPEG);
+    ret = decoder.initDecoder(AV_CODEC_ID_MJPEG);
     if (ret < 0)
     {
         Z_ERR("create jpeg decoder fail {}\n", ffmpeg_make_err_string(ret));
@@ -621,14 +680,14 @@ int Mp4ParseData::decodeJpegToFrame(uint8_t *jpegData, uint32_t jpegSize, MyAVFr
 
     packet.setBuffer(jpegData, jpegSize);
 
-    ret = decoder.send_packet(packet);
+    ret = decoder.sendPacket(packet);
     if (ret < 0)
     {
         Z_ERR("decode jpeg to frame fail {}\n", ffmpeg_make_err_string(ret));
         return ret;
     }
 
-    ret = decoder.receive_frame(frame);
+    ret = decoder.receiveFrame(frame);
     if (ret < 0)
     {
         Z_ERR("decode jpeg to frame fail {}\n", ffmpeg_make_err_string(ret));

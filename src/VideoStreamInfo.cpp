@@ -6,6 +6,7 @@
 #include "Mp4ParseData.h"
 #include "AppConfigure.h"
 #include "timer.h"
+#include "ImGuiApplication.h"
 
 using std::string;
 using namespace ImGui;
@@ -278,11 +279,34 @@ bool VideoStreamInfo::drawHistogram(bool updateScroll)
 
         if (ImGui::IsWindowHovered()
             && ImGui::IsMouseHoveringRect(ImVec2(colPos.x, mHistogramPos.y),
-                                          ImVec2(colPos.x + colSize.x, mHistogramPos.y + histogramShowSize.y))
-            && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                                          ImVec2(colPos.x + colSize.x, mHistogramPos.y + histogramShowSize.y)))
         {
-            mCurSelectFrame[mCurSelectTrack] = frameIdx;
-            frameSelectChanged               = true;
+            BeginTooltip();
+            ImGui::Text("FrameIdx: %d", frameIdx);
+            EndTooltip();
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            {
+                uint32_t keyFrameIdx = 0;
+                int      ret         = getMp4DataShare().seekToFrame(
+                    mCurSelectTrack, getMp4DataShare().tracksFramePtsList[mCurSelectTrack][frameIdx], keyFrameIdx);
+                if (ret >= 0)
+                {
+                    mSeekToFrame = frameIdx;
+                    if (ret == 0)
+                    {
+                        mCurSelectFrame[mCurSelectTrack] = keyFrameIdx;
+                    }
+                    else if (ret == 1)
+                    {
+                        mCurSelectFrame[mCurSelectTrack] = frameIdx;
+                    }
+                    else if (ret == 2)
+                    {
+                        mCurSelectFrame[mCurSelectTrack]++;
+                    }
+                    frameSelectChanged = true;
+                }
+            }
         }
     }
 
@@ -527,6 +551,7 @@ bool VideoStreamInfo::showHistogramAndFrameInfo(bool updateScroll)
     if (drawHistogram(updateScroll || selectFrame || mSelectChanged))
     {
         mIsPlaying  = false;
+        mIsSeeking  = true;
         selectFrame = true;
     }
 
@@ -617,6 +642,22 @@ bool VideoStreamInfo::show()
 
     bool playNextFrame = false;
     bool selectFrame   = false;
+
+    if (mIsSeeking)
+    {
+        if (mCurSelectFrame[mCurSelectTrack] == mSeekToFrame)
+        {
+            mIsSeeking = false;
+            SET_APPLICATION_STATUS("Seeking To Frame %d Done", mSeekToFrame);
+        }
+        else
+        {
+            mCurSelectFrame[mCurSelectTrack]++;
+            playNextFrame = true;
+            SET_APPLICATION_STATUS("Seeking To Frame %d...now at %d", mSeekToFrame, mCurSelectFrame[mCurSelectTrack]);
+        }
+    }
+
     if (mIsPlaying)
     {
         uint64_t curTimeMs = gettime_ms();
