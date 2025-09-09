@@ -149,10 +149,41 @@ VideoStreamInfo::VideoStreamInfo()
     mPlayProgressBar.setCallbacks(
         [this](float progress)
         {
-            mCurSelectFrame[mCurSelectTrack] = (uint32_t)(progress * mTotalVideoFrameCount);
-            mSelectChanged                   = true;
+            uint32_t frameIdx = (uint32_t)(progress * mTotalVideoFrameCount);
+            if (seekToFrame(frameIdx) < 0)
+                return;
+            mSelectChanged = true;
         },
         [this]() -> float { return (float)mCurSelectFrame[mCurSelectTrack] / mTotalVideoFrameCount; });
+}
+
+int VideoStreamInfo::seekToFrame(uint32_t frameIdx)
+{
+    auto ptsList = getMp4DataShare().tracksFramePtsList.find(mCurSelectTrack);
+    if (ptsList == getMp4DataShare().tracksFramePtsList.end() || frameIdx >= ptsList->second.size())
+        return -1;
+
+    uint32_t keyFrameIdx = 0;
+    int      ret         = getMp4DataShare().seekToFrame(mCurSelectTrack, ptsList->second[frameIdx], keyFrameIdx);
+    if (ret < 0)
+        return ret;
+
+    mSeekToFrame = frameIdx;
+    if (ret == 0)
+    {
+        mCurSelectFrame[mCurSelectTrack] = keyFrameIdx;
+    }
+    else if (ret == 1)
+    {
+        mCurSelectFrame[mCurSelectTrack] = frameIdx;
+    }
+    else if (ret == 2)
+    {
+        mCurSelectFrame[mCurSelectTrack]++;
+    }
+
+    mIsSeeking = true;
+    return 0;
 }
 
 VideoStreamInfo::~VideoStreamInfo()
@@ -286,26 +317,8 @@ bool VideoStreamInfo::drawHistogram(bool updateScroll)
             EndTooltip();
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             {
-                uint32_t keyFrameIdx = 0;
-                int      ret         = getMp4DataShare().seekToFrame(
-                    mCurSelectTrack, getMp4DataShare().tracksFramePtsList[mCurSelectTrack][frameIdx], keyFrameIdx);
-                if (ret >= 0)
-                {
-                    mSeekToFrame = frameIdx;
-                    if (ret == 0)
-                    {
-                        mCurSelectFrame[mCurSelectTrack] = keyFrameIdx;
-                    }
-                    else if (ret == 1)
-                    {
-                        mCurSelectFrame[mCurSelectTrack] = frameIdx;
-                    }
-                    else if (ret == 2)
-                    {
-                        mCurSelectFrame[mCurSelectTrack]++;
-                    }
+                if (seekToFrame(frameIdx) == 0)
                     frameSelectChanged = true;
-                }
             }
         }
     }

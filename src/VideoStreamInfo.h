@@ -59,9 +59,11 @@ private:
     void showFrameInfo();
     void showFrameDisplay();
     bool showHistogramAndFrameInfo(bool updateScroll);
+    int  seekToFrame(uint32_t frameIdx);
 
 private:
     std::map<unsigned int /* trackIdx */, uint32_t /* frameIdx sort by pts */> mCurSelectFrame;
+
     uint32_t mSeekToFrame = 0;
 
     bool mSelectChanged = false;
@@ -118,7 +120,7 @@ private:
     ImGui::ImGuiInputCombo mFrameRateCombo = ImGui::ImGuiInputCombo("Framerate");
 
     bool     mIsPlaying      = false;
-    bool     mIsSeeking        = false;
+    bool     mIsSeeking      = false;
     uint64_t mLastPlayTimeMs = 0;
     uint32_t mPlayIntervalMs = 50; // 20fps
     ImVec2   mPlayControlPanelSize;

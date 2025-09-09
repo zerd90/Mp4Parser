@@ -167,7 +167,7 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
 
         addFrameToCache(frame);
 
-        if (mTracksDecodeStat[trackIdx].lastDecodedFrameIdx == frameIdx)
+        if (mTracksDecodeStat[trackIdx].lastDecodedFrameIdx >= frameIdx)
         {
             break;
         }
@@ -617,7 +617,7 @@ int createJpegCodecs(int width, int height, MyAVCodecContext &encoder)
                               {
                                   codecCtx->width   = width;
                                   codecCtx->height  = height;
-                                  codecCtx->pix_fmt = AV_PIX_FMT_YUVJ444P;
+                                  codecCtx->pix_fmt = AV_PIX_FMT_YUVJ420P;
                                   return 0;
                               });
     if (ret < 0)
@@ -640,7 +640,7 @@ std::unique_ptr<uint8_t[]> Mp4ParseData::encodeFrameToJpeg(MyAVFrame &frame, uin
         return nullptr;
     }
 
-    if (transformFrameFormat(frame, {AV_PIX_FMT_YUVJ444P}) < 0)
+    if (transformFrameFormat(frame, {AV_PIX_FMT_YUVJ420P}) < 0)
     {
         Z_ERR("transform frame format fail {}\n", ffmpeg_make_err_string(ret));
         return nullptr;
