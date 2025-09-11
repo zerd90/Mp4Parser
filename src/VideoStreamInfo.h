@@ -61,6 +61,8 @@ private:
     bool showHistogramAndFrameInfo(bool updateScroll);
     int  seekToFrame(uint32_t frameIdx);
 
+    int saveFrameToFile();
+
 private:
     std::map<unsigned int /* trackIdx */, uint32_t /* frameIdx sort by pts */> mCurSelectFrame;
 

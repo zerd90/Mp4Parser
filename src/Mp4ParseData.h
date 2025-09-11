@@ -79,6 +79,8 @@ public:
     // 0 - seek to key frame before; 1 - frame in cache; 2 - continue decode to the frame; -1 - seek fail
     int seekToFrame(uint32_t trackIdx, uint32_t frameIdx, uint32_t &keyFrameIdx);
 
+    int saveFrameToFile(uint32_t trackIdx, uint32_t frameIdx);
+
 private:
     virtual void run() override;
     virtual void starting() override;

@@ -1,4 +1,7 @@
 
+#include <algorithm>
+#include <filesystem>
+
 #include "imgui_common_tools.h"
 #include "ImGuiBaseTypes.h"
 #include "logger.h"
@@ -6,11 +9,12 @@
 #include "Mp4Parser.h"
 #include "Mp4ParseData.h"
 #include "AppConfigure.h"
-#include <algorithm>
 
 using std::shared_ptr;
 using std::string;
 using std::vector;
+namespace fs = std::filesystem;
+
 using namespace ImGui;
 
 StdMutex                 gDatalock;
@@ -719,4 +723,46 @@ void Mp4ParseData::addFrameToCache(MyAVFrame &frame)
 
     Z_INFO("Add Frame Pts {} To Cache\n", frame->pts);
     mDecodeFrameCache.emplace_back(std::move(cacheData));
+}
+
+int Mp4ParseData::saveFrameToFile(uint32_t trackIdx, uint32_t frameIdx)
+{
+    auto &samples = tracksInfo[trackIdx].mediaInfo->samplesInfo;
+    if (frameIdx >= samples.size())
+        return -1;
+
+    FrameCacheData *cacheData = nullptr;
+
+    for (auto &cache : mDecodeFrameCache)
+    {
+        if (cache.ptsMs == samples[frameIdx].ptsMs)
+        {
+            Z_INFO("Got Cache With Pts {}\n", cache.ptsMs);
+            cacheData = &cache;
+            break;
+        }
+    }
+
+    if (!cacheData)
+    {
+        Z_ERR("No Cache With Pts {}\n", samples[frameIdx].ptsMs);
+        return -1;
+    }
+
+    string filePath =
+        localToUtf8(mParser->asBox()->getBoxTypeStr()) + string("_frame_") + std::to_string(frameIdx) + string(".jpg");
+    filePath = (fs::path(getAppConfigure().saveFramePath) / filePath).string();
+
+    FILE *fp = fopen(utf8ToLocal(filePath).c_str(), "wb");
+    if (!fp)
+    {
+        Z_ERR("Open File {} Fail\n", filePath);
+        return -1;
+    }
+    fwrite(cacheData->jpegData.get(), 1, cacheData->jpegSize, fp);
+    fclose(fp);
+
+    SET_APPLICATION_STATUS("Save Frame To %s", filePath.c_str());
+
+    return 0;
 }

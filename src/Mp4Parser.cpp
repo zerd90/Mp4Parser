@@ -939,6 +939,10 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
     addSetting(
         SettingValue::SettingBool, "Show Frame Info", [](const void *val) { getAppConfigure().showFrameInfo = *(bool *)val; },
         [](void *val) { *(bool *)val = getAppConfigure().showFrameInfo; });
+    addSetting(
+        ImGui::SettingValue::SettingStr, "Save Frame Path",
+        [](const void *val) { getAppConfigure().saveFramePath = (char *)val; },
+        [](void *val) { *(const char **)val = getAppConfigure().saveFramePath.c_str(); });
 
     addMenu({"Menu"});
     addMenu({"Settings"});
@@ -1014,6 +1018,17 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
             [type]() { return type == getAppConfigure().hardwareDecode; });
     }
 
+    addMenu({"Settings", "Select Save Path"},
+            []()
+            {
+                string path = selectDir(getAppConfigure().saveFramePath);
+                if (!path.empty())
+                {
+                    Z_INFO("Select Save Path: {}\n", path);
+                    getAppConfigure().saveFramePath = path;
+                }
+            });
+
     addMenu({"Info", "More Debug Log"}, nullptr, &getAppConfigure().needShowDebugLog);
 
     getMp4DataShare().onFrameParsed = [this](unsigned int trackIdx, int frameIdx, H26X_FRAME_TYPE_E frameType)
@@ -1027,6 +1042,30 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
     mInfoWindow.setContent([&]() { ShowInfoView(); });
     mInfoWindow.removeHoveredFlag(ImGuiHoveredFlags_ChildWindows);
     mInfoWindow.open();
+
+    if (!getAppConfigure().saveFramePath.empty())
+    {
+        std::error_code ec;
+        fs::path        path(getAppConfigure().saveFramePath);
+        if (!fs::exists(path, ec))
+        {
+            if (!fs::create_directories(path, ec))
+            {
+                SET_APPLICATION_STATUS("Create Save Path %s Fail: %s", path.string().c_str(), ec.message().c_str());
+                getAppConfigure().saveFramePath.clear();
+            }
+        }
+    }
+
+    if (getAppConfigure().saveFramePath.empty())
+    {
+        string path = getSystemPictureFolder();
+        if (!path.empty())
+        {
+            getAppConfigure().saveFramePath = path;
+            Z_INFO("Save Frame Path: {}\n", path);
+        }
+    }
 }
 
 Mp4ParserApp::~Mp4ParserApp() {}

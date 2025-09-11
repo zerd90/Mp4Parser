@@ -547,7 +547,7 @@ bool VideoStreamInfo::showHistogramAndFrameInfo(bool updateScroll)
     {
         if (mCurSelectFrame[mCurSelectTrack] < getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
         {
-            mCurSelectFrame[mCurSelectTrack]++;
+            seekToFrame(mCurSelectFrame[mCurSelectTrack] + 1);
             selectFrame = true;
         }
     }
@@ -556,7 +556,7 @@ bool VideoStreamInfo::showHistogramAndFrameInfo(bool updateScroll)
     {
         if (mCurSelectFrame[mCurSelectTrack] > 0)
         {
-            mCurSelectFrame[mCurSelectTrack]--;
+            seekToFrame(mCurSelectFrame[mCurSelectTrack] - 1);
             selectFrame = true;
         }
     }
@@ -833,6 +833,23 @@ void VideoStreamInfo::showFrameDisplay()
             getAppConfigure().showFrameInfo = true;
         }
     }
+    SameLine();
+    if (Button("Save Frame"))
+    {
+        saveFrameToFile();
+    }
 
     mPlayControlPanelSize = ImGui::GetCursorScreenPos() - controlPanelStart;
+}
+
+int VideoStreamInfo::saveFrameToFile()
+{
+    auto frameIdx = mCurSelectFrame[mCurSelectTrack];
+    auto ptsList  = getMp4DataShare().tracksFramePtsList.find(mCurSelectTrack);
+    if (ptsList == getMp4DataShare().tracksFramePtsList.end() || frameIdx >= ptsList->second.size())
+        return -1;
+
+    auto realIdx = ptsList->second[frameIdx];
+
+    return getMp4DataShare().saveFrameToFile(mCurSelectTrack, realIdx);
 }

@@ -1,6 +1,8 @@
 #ifndef _APP_CONFIGURE_H_
 #define _APP_CONFIGURE_H_
 
+#include <string>
+
 class AppConfigures
 {
 public:
@@ -12,6 +14,8 @@ public:
     bool showRawFrameType = false; // show raw frame type in frame table
     int  playFrameRate    = 20;
     bool showFrameInfo    = true;
+
+    std::string saveFramePath = "";
 
     // not saving
     bool showBoxBinaryData = false;
