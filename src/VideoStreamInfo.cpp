@@ -599,23 +599,6 @@ bool VideoStreamInfo::showHistogramAndFrameInfo(bool updateScroll)
     ImGui::SetCursorScreenPos(mWidthScaleUpButton.itemPos() - ImVec2(mHistMoveRightButton.itemSize().x + ITEM_SPACING, 0));
     mHistMoveRightButton.showDisabled(mHistogramEndIdx >= mTotalVideoFrameCount - 1);
 
-    float space = mHistMoveRightButton.itemPos().x - mHistMoveLeftButton.itemPos().x;
-    if (space < 0)
-    {
-        space = 0;
-    }
-
-    float centralButtonsSize = mNextFrameButton.itemSize().x + mPrevFrameButton.itemSize().x + ITEM_SPACING;
-    ImGui::SetCursorScreenPos(
-        ImVec2(mHistMoveLeftButton.itemPos().x + (space - centralButtonsSize) / 2, mHistMoveLeftButton.itemPos().y));
-    mPrevFrameButton.showDisabled(mCurSelectFrame[mCurSelectTrack] <= 0);
-
-    ImGui::SetCursorScreenPos(
-        ImVec2(mPrevFrameButton.itemPos().x + mPrevFrameButton.itemSize().x + ITEM_SPACING, mPrevFrameButton.itemPos().y));
-
-    mNextFrameButton.showDisabled(mCurSelectFrame[mCurSelectTrack]
-                                  >= getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1);
-
     if (getMp4DataShare().videoTracksIdx.size() > 1)
     {
         if (ImGui::BeginPopupContextWindow("Select Track", ImGuiPopupFlags_MouseButtonRight))
@@ -808,7 +791,12 @@ void VideoStreamInfo::showFrameDisplay()
     }
 
     SameLine();
+    mPrevFrameButton.showDisabled(mCurSelectFrame[mCurSelectTrack] <= 0);
+    SameLine();
+    mNextFrameButton.showDisabled(mCurSelectFrame[mCurSelectTrack]
+                                  >= getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1);
 
+    SameLine();
     if (mFrameRateCombo.getSelected() != getAppConfigure().playFrameRate)
         mFrameRateCombo.setSelected(getAppConfigure().playFrameRate);
     mFrameRateCombo.show();
