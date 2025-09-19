@@ -517,50 +517,6 @@ bool VideoStreamInfo::showHistogramAndFrameInfo(bool updateScroll)
 
     bool selectFrame = false;
 
-    if (mFrameDisplay.isFocused())
-    {
-        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
-        {
-            if (mCurSelectFrame[mCurSelectTrack] < mTotalVideoFrameCount - 1)
-            {
-                mCurSelectFrame[mCurSelectTrack]++;
-                selectFrame = true;
-            }
-        }
-        else if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
-        {
-            if (mCurSelectFrame[mCurSelectTrack] > 0)
-            {
-                mCurSelectFrame[mCurSelectTrack]--;
-                selectFrame = true;
-            }
-        }
-
-        if (ImGui::IsKeyReleased(ImGuiKey_Space, false))
-        {
-            mIsPlaying = !mIsPlaying;
-        }
-    }
-
-    if (mNextFrameButton.isClicked() || mNextFrameButton.isActiveFor(500))
-
-    {
-        if (mCurSelectFrame[mCurSelectTrack] < getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
-        {
-            seekToFrame(mCurSelectFrame[mCurSelectTrack] + 1);
-            selectFrame = true;
-        }
-    }
-
-    if (mPrevFrameButton.isClicked() || mPrevFrameButton.isActiveFor(500))
-    {
-        if (mCurSelectFrame[mCurSelectTrack] > 0)
-        {
-            seekToFrame(mCurSelectFrame[mCurSelectTrack] - 1);
-            selectFrame = true;
-        }
-    }
-
     if (drawHistogram(updateScroll || selectFrame || mSelectChanged))
     {
         mIsPlaying  = false;
@@ -675,6 +631,50 @@ bool VideoStreamInfo::show()
         }
     }
 
+    if (mFrameDisplay.isFocused())
+    {
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
+        {
+            if (mCurSelectFrame[mCurSelectTrack] < mTotalVideoFrameCount - 1)
+            {
+                mCurSelectFrame[mCurSelectTrack]++;
+                selectFrame = true;
+            }
+        }
+        else if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
+        {
+            if (mCurSelectFrame[mCurSelectTrack] > 0)
+            {
+                mCurSelectFrame[mCurSelectTrack]--;
+                selectFrame = true;
+            }
+        }
+
+        if (ImGui::IsKeyReleased(ImGuiKey_Space, false))
+        {
+            mIsPlaying = !mIsPlaying;
+        }
+    }
+
+    if (mNextFrameButton.isClicked() || mNextFrameButton.isActiveFor(500))
+
+    {
+        if (mCurSelectFrame[mCurSelectTrack] < getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
+        {
+            seekToFrame(mCurSelectFrame[mCurSelectTrack] + 1);
+            selectFrame = true;
+        }
+    }
+
+    if (mPrevFrameButton.isClicked() || mPrevFrameButton.isActiveFor(500))
+    {
+        if (mCurSelectFrame[mCurSelectTrack] > 0)
+        {
+            seekToFrame(mCurSelectFrame[mCurSelectTrack] - 1);
+            selectFrame = true;
+        }
+    }
+
     if (getAppConfigure().showFrameInfo)
     {
         ImVec2 histogramWinPos = startPos + ImVec2(0, frameDisplaySize.y);
@@ -772,7 +772,7 @@ void VideoStreamInfo::showFrameDisplay()
 
     ImVec2 controlPanelStart = ImGui::GetCursorScreenPos();
     mPlayProgressBar.show();
-
+    printf("%d\n", IsWindowFocused(ImGuiFocusedFlags_ChildWindows));
     if (mIsPlaying)
     {
         mPauseButton.show();
