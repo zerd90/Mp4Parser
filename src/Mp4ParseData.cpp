@@ -353,6 +353,7 @@ void Mp4ParseData::clearData()
     videoTracksIdx.clear();
     mDecodeFrameCache.clear();
     tracksFramePtsList.clear();
+    tracksIFrameList.clear();
 
     mTotalVideoFrameCount = 0;
     mParsingFrameCount    = 0;
@@ -392,12 +393,18 @@ void Mp4ParseData::updateData()
         }
         if (copyTrackInfo.trackType == TRACK_TYPE_VIDEO)
         {
-            tracksFramePtsList[(int)tracksInfo.size()].reserve(copyTrackInfo.mediaInfo->samplesInfo.size());
-            auto &ptsList = tracksFramePtsList[(int)tracksInfo.size()];
-            auto &samples = copyTrackInfo.mediaInfo->samplesInfo;
+            auto &ptsList    = tracksFramePtsList[(int)tracksInfo.size()];
+            auto &iframeList = tracksIFrameList[(int)tracksInfo.size()];
+            auto &samples    = copyTrackInfo.mediaInfo->samplesInfo;
+
+            ptsList.reserve(copyTrackInfo.mediaInfo->samplesInfo.size());
+            iframeList.reserve(copyTrackInfo.mediaInfo->samplesInfo.size());
+
             for (auto &sample : samples)
             {
                 ptsList.push_back((uint32_t)sample.sampleIdx);
+                if (sample.isKeyFrame)
+                    iframeList.push_back((uint32_t)sample.sampleIdx);
             }
             std::sort(ptsList.begin(), ptsList.end(),
                       [&samples](uint32_t a, uint32_t b) { return samples[a].ptsMs < samples[b].ptsMs; });

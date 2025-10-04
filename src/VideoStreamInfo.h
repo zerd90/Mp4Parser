@@ -99,6 +99,15 @@ private:
         uint64_t    frameSize;
         uint64_t    dtsMs;
         uint64_t    ptsMs;
+        void        reset()
+        {
+            frameIdx = 0;
+            frameType.clear();
+            frameOffset = 0;
+            frameSize   = 0;
+            dtsMs       = 0;
+            ptsMs       = 0;
+        }
     } mCurrentFrameInfo;
 
     // Items
@@ -114,10 +123,12 @@ private:
     ImGui::ImGuiButton mHistMoveLeftButton     = ImGui::ImGuiButton("<");
     ImGui::ImGuiButton mHistMoveRightButton    = ImGui::ImGuiButton(">");
 
-    ImGui::ImGuiButton mNextFrameButton = ImGui::ImGuiButton(">##next frame");
-    ImGui::ImGuiButton mPrevFrameButton = ImGui::ImGuiButton("<##prev frame");
-    ImGui::ImGuiButton mPlayButton      = ImGui::ImGuiButton("Play##button");
-    ImGui::ImGuiButton mPauseButton     = ImGui::ImGuiButton("Pause##button");
+    ImGui::ImGuiButton mNextFrameButton  = ImGui::ImGuiButton(">##next frame");
+    ImGui::ImGuiButton mNextIFrameButton = ImGui::ImGuiButton(">>##next i frame");
+    ImGui::ImGuiButton mPrevFrameButton  = ImGui::ImGuiButton("<##prev frame");
+    ImGui::ImGuiButton mPrevIFrameButton = ImGui::ImGuiButton("<<##prev i frame");
+    ImGui::ImGuiButton mPlayButton       = ImGui::ImGuiButton("Play##button");
+    ImGui::ImGuiButton mPauseButton      = ImGui::ImGuiButton("Pause##button");
 
     ImGui::ImGuiInputCombo mFrameRateCombo = ImGui::ImGuiInputCombo("Framerate");
 

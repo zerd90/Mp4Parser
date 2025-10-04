@@ -68,14 +68,14 @@ void VideoStreamInfo::updateFrameInfo(MyAVFrame &frame)
     IM_UNUSED(frame);
     if (!getMp4DataShare().dataAvailable)
     {
-        memset(&mCurrentFrameInfo, 0, sizeof(mCurrentFrameInfo));
+        mCurrentFrameInfo.reset();
         return;
     }
     auto &samples = getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->samplesInfo;
     auto &ptsList = getMp4DataShare().tracksFramePtsList[mCurSelectTrack];
     if (ptsList.empty())
     {
-        memset(&mCurrentFrameInfo, 0, sizeof(mCurrentFrameInfo));
+        mCurrentFrameInfo.reset();
         return;
     }
     auto &sample                  = samples[ptsList[mCurSelectFrame[mCurSelectTrack]]];
@@ -127,8 +127,10 @@ VideoStreamInfo::VideoStreamInfo()
     mHistMoveLeftButton.setToolTip("Scroll Left");
     mHistMoveRightButton.setToolTip("Scroll Right");
 
-    mNextFrameButton.setToolTip("Next Frame");
     mPrevFrameButton.setToolTip("Prev Frame");
+    mPrevIFrameButton.setToolTip("Prev I Frame");
+    mNextFrameButton.setToolTip("Next Frame");
+    mNextIFrameButton.setToolTip("Next I Frame");
     mPlayButton.setToolTip("Play");
     mPauseButton.setToolTip("Pause");
 
@@ -582,6 +584,30 @@ bool VideoStreamInfo::showHistogramAndFrameInfo(bool updateScroll)
     return selectFrame;
 }
 
+uint32_t getNextIFrame(std::vector<uint32_t> iFrameList, uint32_t curFrame)
+{
+    if (iFrameList.empty())
+        return 0;
+
+    for (auto iFrameIdx : iFrameList)
+        if (curFrame < iFrameIdx)
+            return iFrameIdx;
+
+    return iFrameList.back();
+}
+
+uint32_t getPrevIFrame(std::vector<uint32_t> iFrameList, uint32_t curFrame)
+{
+    if (iFrameList.empty())
+        return 0;
+
+    for (auto it = iFrameList.rbegin(); it != iFrameList.rend(); it++)
+        if (curFrame > *it)
+            return *it;
+
+    return iFrameList.front();
+}
+
 bool VideoStreamInfo::show()
 {
     if (getMp4DataShare().videoTracksIdx.empty())
@@ -616,17 +642,48 @@ bool VideoStreamInfo::show()
         if (curTimeMs - mLastPlayTimeMs >= mPlayIntervalMs)
         {
             mLastPlayTimeMs = curTimeMs;
-            mCurSelectFrame[mCurSelectTrack]++;
-            if (mCurSelectFrame[mCurSelectTrack] > getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
+            if (getAppConfigure().onlyPlayIFrame)
             {
-                // loop
-                mCurSelectFrame[mCurSelectTrack] = 0;
-                mHistogramScrollPos              = 0;
-                selectFrame                      = true;
+                if (mCurSelectFrame[mCurSelectTrack] >= getMp4DataShare().tracksIFrameList[mCurSelectTrack].back())
+                {
+                    if (getAppConfigure().loopPlay)
+                    {
+                        mCurSelectFrame[mCurSelectTrack] = getMp4DataShare().tracksIFrameList[mCurSelectTrack].front();
+                        mHistogramScrollPos              = 0;
+                        selectFrame                      = true;
+                    }
+                    else
+                    {
+                        mIsPlaying = false;
+                    }
+                }
+                else
+                {
+                    mCurSelectFrame[mCurSelectTrack] =
+                        getNextIFrame(getMp4DataShare().tracksIFrameList[mCurSelectTrack], mCurSelectFrame[mCurSelectTrack]);
+                    playNextFrame = true;
+                }
             }
             else
             {
-                playNextFrame = true;
+                if (mCurSelectFrame[mCurSelectTrack] >= getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
+                {
+                    if (getAppConfigure().loopPlay)
+                    {
+                        mCurSelectFrame[mCurSelectTrack] = 0;
+                        mHistogramScrollPos              = 0;
+                        selectFrame                      = true;
+                    }
+                    else
+                    {
+                        mIsPlaying = false;
+                    }
+                }
+                else
+                {
+                    mCurSelectFrame[mCurSelectTrack]++;
+                    playNextFrame = true;
+                }
             }
         }
     }
@@ -657,13 +714,13 @@ bool VideoStreamInfo::show()
     }
 
     if (mNextFrameButton.isClicked() || mNextFrameButton.isActiveFor(500))
-
     {
         if (mCurSelectFrame[mCurSelectTrack] < getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
         {
             seekToFrame(mCurSelectFrame[mCurSelectTrack] + 1);
             selectFrame = true;
         }
+        mIsPlaying = false;
     }
 
     if (mPrevFrameButton.isClicked() || mPrevFrameButton.isActiveFor(500))
@@ -673,13 +730,34 @@ bool VideoStreamInfo::show()
             seekToFrame(mCurSelectFrame[mCurSelectTrack] - 1);
             selectFrame = true;
         }
+        mIsPlaying = false;
+    }
+
+    if (mPrevIFrameButton.isClicked() || mPrevIFrameButton.isActiveFor(500))
+    {
+        if (mCurSelectFrame[mCurSelectTrack] > 0)
+        {
+            seekToFrame(getPrevIFrame(getMp4DataShare().tracksIFrameList[mCurSelectTrack], mCurSelectFrame[mCurSelectTrack]));
+            selectFrame = true;
+        }
+        mIsPlaying = false;
+    }
+
+    if (mNextIFrameButton.isClicked() || mNextIFrameButton.isActiveFor(500))
+    {
+        if (mCurSelectFrame[mCurSelectTrack] < getMp4DataShare().tracksIFrameList[mCurSelectTrack].back())
+        {
+            seekToFrame(getNextIFrame(getMp4DataShare().tracksIFrameList[mCurSelectTrack], mCurSelectFrame[mCurSelectTrack]));
+            selectFrame = true;
+        }
+        mIsPlaying = false;
     }
 
     if (getAppConfigure().showFrameInfo)
     {
         ImVec2 histogramWinPos = startPos + ImVec2(0, frameDisplaySize.y);
         ImGui::SetCursorScreenPos(histogramWinPos);
-        selectFrame = showHistogramAndFrameInfo(playNextFrame || selectFrame);
+        selectFrame = showHistogramAndFrameInfo(playNextFrame || selectFrame) || selectFrame;
         ImGui::SetCursorScreenPos(histogramWinPos + ImVec2(contentRegion.x * HISTOGRAM_WIDTH_RATIO, 0));
         ImGui::BeginChild("Frame Info", ImVec2(contentRegion.x * (1 - HISTOGRAM_WIDTH_RATIO), HISTOGRAM_HEIGHT),
                           ImGuiChildFlags_Borders);
@@ -737,8 +815,8 @@ void VideoStreamInfo::updateData()
 
 void VideoStreamInfo::showFrameInfo()
 {
-    ImGui::Text("Play Index: %u", mCurSelectFrame[mCurSelectTrack]);
-    ImGui::Text("Index: %u", mCurrentFrameInfo.frameIdx);
+    ImGui::Text("Play Index: %u", mCurSelectFrame[mCurSelectTrack] + 1);
+    ImGui::Text("Index: %u", mCurrentFrameInfo.frameIdx + 1);
     ImGui::Text("Type: %s", mCurrentFrameInfo.frameType.c_str());
     if (getAppConfigure().needShowInHex)
     {
@@ -791,19 +869,38 @@ void VideoStreamInfo::showFrameDisplay()
     }
 
     SameLine();
+    mPrevIFrameButton.showDisabled(mCurSelectFrame[mCurSelectTrack] <= 0);
+    SameLine();
     mPrevFrameButton.showDisabled(mCurSelectFrame[mCurSelectTrack] <= 0);
     SameLine();
     mNextFrameButton.showDisabled(mCurSelectFrame[mCurSelectTrack]
                                   >= getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1);
+    SameLine();
+    mNextIFrameButton.showDisabled(mCurSelectFrame[mCurSelectTrack]
+                                   >= getMp4DataShare().tracksIFrameList[mCurSelectTrack].back());
 
     SameLine();
-    if (mFrameRateCombo.getSelected() != getAppConfigure().playFrameRate)
-        mFrameRateCombo.setSelected(getAppConfigure().playFrameRate);
-    mFrameRateCombo.show();
-    if (mFrameRateCombo.selectChanged())
+    if (getAppConfigure().onlyPlayIFrame)
     {
-        getAppConfigure().playFrameRate = mFrameRateCombo.getSelected();
-        mPlayIntervalMs                 = 1000 / getAppConfigure().playFrameRate;
+        if (mFrameRateCombo.getSelected() != getAppConfigure().playIFrameRate)
+            mFrameRateCombo.setSelected(getAppConfigure().playIFrameRate);
+        mFrameRateCombo.show();
+        if (mFrameRateCombo.selectChanged())
+        {
+            getAppConfigure().playIFrameRate = mFrameRateCombo.getSelected();
+            mPlayIntervalMs                  = 1000 / getAppConfigure().playIFrameRate;
+        }
+    }
+    else
+    {
+        if (mFrameRateCombo.getSelected() != getAppConfigure().playFrameRate)
+            mFrameRateCombo.setSelected(getAppConfigure().playFrameRate);
+        mFrameRateCombo.show();
+        if (mFrameRateCombo.selectChanged())
+        {
+            getAppConfigure().playFrameRate = mFrameRateCombo.getSelected();
+            mPlayIntervalMs                 = 1000 / getAppConfigure().playFrameRate;
+        }
     }
 
     SameLine();
@@ -825,6 +922,18 @@ void VideoStreamInfo::showFrameDisplay()
     if (Button("Save Frame"))
     {
         saveFrameToFile();
+    }
+    SameLine();
+    if (Checkbox("Only Play I Frame", &getAppConfigure().onlyPlayIFrame))
+    {
+        if (getAppConfigure().onlyPlayIFrame)
+        {
+            mPlayIntervalMs = 1000 / getAppConfigure().playIFrameRate;
+        }
+        else
+        {
+            mPlayIntervalMs = 1000 / getAppConfigure().playFrameRate;
+        }
     }
 
     mPlayControlPanelSize = ImGui::GetCursorScreenPos() - controlPanelStart;

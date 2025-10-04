@@ -680,7 +680,7 @@ void Mp4ParserApp::updateSamplesTable()
                             default:
                                 break;
                             case 0:
-                                return to_string(curItem.sampleIdx);
+                                return to_string(curItem.sampleIdx + 1);
                             case 1:
                                 if (getAppConfigure().needShowInHex)
                                     return Log::format("{#x}", curItem.sampleOffset);
@@ -838,7 +838,7 @@ void Mp4ParserApp::updateChunksTable()
                 switch (colIdx)
                 {
                     case 0:
-                        return to_string(cur_item.chunkIdx);
+                        return to_string(cur_item.chunkIdx + 1);
                     case 1:
                         if (getAppConfigure().needShowInHex)
                             return Log::format("{#x}", cur_item.chunkOffset);
@@ -937,12 +937,18 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
         SettingValue::SettingInt, "Play Frame Rate", [](const void *val) { getAppConfigure().playFrameRate = *(int *)val; },
         [](void *val) { *(int *)val = getAppConfigure().playFrameRate; });
     addSetting(
+        SettingValue::SettingInt, "Play I Frame Rate", [](const void *val) { getAppConfigure().playIFrameRate = *(int *)val; },
+        [](void *val) { *(int *)val = getAppConfigure().playIFrameRate; });
+    addSetting(
         SettingValue::SettingBool, "Show Frame Info", [](const void *val) { getAppConfigure().showFrameInfo = *(bool *)val; },
         [](void *val) { *(bool *)val = getAppConfigure().showFrameInfo; });
     addSetting(
         ImGui::SettingValue::SettingStr, "Save Frame Path",
         [](const void *val) { getAppConfigure().saveFramePath = (char *)val; },
         [](void *val) { *(const char **)val = getAppConfigure().saveFramePath.c_str(); });
+    addSetting(
+        SettingValue::SettingBool, "Loop Play", [](const void *val) { getAppConfigure().loopPlay = *(bool *)val; },
+        [](void *val) { *(bool *)val = getAppConfigure().loopPlay; });
 
     addMenu({"Menu"});
     addMenu({"Settings"});
@@ -1030,6 +1036,13 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
             });
 
     addMenu({"Info", "More Debug Log"}, nullptr, &getAppConfigure().needShowDebugLog);
+
+    addMenu(
+        {"Settings", "Action On End Playing", "Restart"}, []() { getAppConfigure().loopPlay = true; },
+        []() { return getAppConfigure().loopPlay; });
+    addMenu(
+        {"Settings", "Action On End Playing", "Stop"}, []() { getAppConfigure().loopPlay = false; },
+        []() { return !getAppConfigure().loopPlay; });
 
     getMp4DataShare().onFrameParsed = [this](unsigned int trackIdx, int frameIdx, H26X_FRAME_TYPE_E frameType)
     {

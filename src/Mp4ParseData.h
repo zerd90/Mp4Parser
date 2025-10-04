@@ -107,6 +107,7 @@ public:
     std::function<void(unsigned int track_id, int frame_idx, H26X_FRAME_TYPE_E frame_type)> onFrameParsed;
 
     std::map<int /* trackIdx */, std::vector<uint32_t>> tracksFramePtsList; // sort by pts
+    std::map<int /* trackIdx */, std::vector<uint32_t>> tracksIFrameList;
 
 private:
     PARSE_OPERATION_E          mOperation = OPERATION_PARSE_FILE;

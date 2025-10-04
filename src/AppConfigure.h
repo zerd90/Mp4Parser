@@ -13,12 +13,15 @@ public:
     bool showWrappedData  = false; // show wrapped data in binary viewer, append SPS/PPS/VPS, transform start code
     bool showRawFrameType = false; // show raw frame type in frame table
     int  playFrameRate    = 20;
+    int  playIFrameRate   = 5;
     bool showFrameInfo    = true;
+    bool loopPlay         = true;
 
     std::string saveFramePath = "";
 
     // not saving
     bool showBoxBinaryData = false;
+    bool onlyPlayIFrame    = false;
 };
 
 AppConfigures &getAppConfigure();
