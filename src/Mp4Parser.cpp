@@ -947,11 +947,10 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
         [](const void *val) { getAppConfigure().saveFramePath = (char *)val; },
         [](void *val) { *(const char **)val = getAppConfigure().saveFramePath.c_str(); });
     addSetting(
-        SettingValue::SettingBool, "Loop Play", [](const void *val) { getAppConfigure().loopPlay = *(bool *)val; },
-        [](void *val) { *(bool *)val = getAppConfigure().loopPlay; });
+        SettingValue::SettingInt, "Action On End Playing",
+        [](const void *val) { getAppConfigure().playStrategy = (AppConfigures::PlayStrategy) * (int *)val; },
+        [](void *val) { *(int *)val = getAppConfigure().playStrategy; });
 
-    addMenu({"Menu"});
-    addMenu({"Settings"});
     addMenu({"Menu", "Open File"},
             [this]()
             {
@@ -985,64 +984,6 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
             });
 
     addMenu({"Menu", "Reset"}, [this]() { reset(); });
-
-    addMenu({"Settings", "Show Offset/Size in Hex"}, nullptr, &getAppConfigure().needShowInHex);
-    addMenu({"Settings", "Binary View"}, nullptr, &getAppConfigure().showBoxBinaryData);
-    addMenu({"Settings", "Logarithmic Axis"}, nullptr, &getAppConfigure().logarithmicAxis);
-
-    addMenu(
-        {"Settings", "Hardware Decode", "Off"},
-        []()
-        {
-            getAppConfigure().hardwareDecode = -1;
-            Z_INFO("HW Decode: {}\n", getAppConfigure().hardwareDecode);
-            getMp4DataShare().recreateDecoder();
-        },
-        []() { return -1 == getAppConfigure().hardwareDecode; });
-    addMenu(
-        {"Settings", "Hardware Decode", "Auto"},
-        []()
-        {
-            getAppConfigure().hardwareDecode = 0;
-            Z_INFO("HW Decode: {}\n", getAppConfigure().hardwareDecode);
-            getMp4DataShare().recreateDecoder();
-        },
-        []() { return 0 == getAppConfigure().hardwareDecode; });
-
-    std::vector<AVHWDeviceType> hwTypes = getSupportHWDeviceType();
-    for (auto type : hwTypes)
-    {
-        Z_INFO("Support {}\n", type);
-        addMenu(
-            {"Settings", "Hardware Decode", av_hwdevice_get_type_name(type)},
-            [type]()
-            {
-                getAppConfigure().hardwareDecode = type;
-                Z_INFO("HW Decode: {}\n", getAppConfigure().hardwareDecode);
-                getMp4DataShare().recreateDecoder();
-            },
-            [type]() { return type == getAppConfigure().hardwareDecode; });
-    }
-
-    addMenu({"Settings", "Select Save Path"},
-            []()
-            {
-                string path = selectDir(getAppConfigure().saveFramePath);
-                if (!path.empty())
-                {
-                    Z_INFO("Select Save Path: {}\n", path);
-                    getAppConfigure().saveFramePath = path;
-                }
-            });
-
-    addMenu({"Info", "More Debug Log"}, nullptr, &getAppConfigure().needShowDebugLog);
-
-    addMenu(
-        {"Settings", "Action On End Playing", "Restart"}, []() { getAppConfigure().loopPlay = true; },
-        []() { return getAppConfigure().loopPlay; });
-    addMenu(
-        {"Settings", "Action On End Playing", "Stop"}, []() { getAppConfigure().loopPlay = false; },
-        []() { return !getAppConfigure().loopPlay; });
 
     getMp4DataShare().onFrameParsed = [this](unsigned int trackIdx, int frameIdx, H26X_FRAME_TYPE_E frameType)
     {
@@ -1242,6 +1183,38 @@ void Mp4ParserApp::presetInternal()
     Z_INFO("ffmpeg version: {}\n", av_version_info());
 
     setTitle(mApplicationName);
+}
+
+void Mp4ParserApp::initSettingsWindowInternal()
+{
+
+    addSettingWindowItemBool({"General"}, "Show Offset/Size in Hex", &getAppConfigure().needShowInHex);
+    addSettingWindowItemBool({"General"}, "Binary View", &getAppConfigure().showBoxBinaryData);
+    addSettingWindowItemBool({"General"}, "Logarithmic Axis", &getAppConfigure().logarithmicAxis);
+
+    vector<AVHWDeviceType>         hwTypes     = getSupportHWDeviceType();
+    vector<std::pair<int, string>> hwTypeItems = {
+        {-1, "Off" },
+        {0,  "Auto"},
+    };
+    for (auto type : hwTypes)
+    {
+        Z_INFO("Support {}\n", type);
+        hwTypeItems.push_back({type, av_hwdevice_get_type_name(type)});
+    }
+    vector<string> category = {"General"};
+    addSettingWindowItemCombo(category, "Hardware Decode", &getAppConfigure().hardwareDecode, hwTypeItems,
+                              []() { getMp4DataShare().recreateDecoder(); });
+    addSettingWindowItemPath(category, "Save Frame Path", &getAppConfigure().saveFramePath,
+                             SettingPathFlags_SelectDir | SettingPathFlags_CreateWhenNotExist);
+
+    addSettingWindowItemCombo(category, "Action On End Playing", (ComboTag *)&getAppConfigure().playStrategy,
+                              {
+                                  {AppConfigures::RestartOnEnd, "Restart"},
+                                  {AppConfigures::StopOnEnd,    "Stop"   },
+    });
+
+    addSettingWindowItemBool({"Info"}, "More Debug Log", &getAppConfigure().needShowDebugLog);
 }
 
 bool Mp4ParserApp::renderUI()

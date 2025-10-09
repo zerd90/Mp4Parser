@@ -15,7 +15,12 @@ public:
     int  playFrameRate    = 20;
     int  playIFrameRate   = 5;
     bool showFrameInfo    = true;
-    bool loopPlay         = true;
+    enum PlayStrategy : int
+    {
+        RestartOnEnd,
+        StopOnEnd
+    };
+    PlayStrategy playStrategy = RestartOnEnd;
 
     std::string saveFramePath = "";
 

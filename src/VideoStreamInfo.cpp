@@ -646,7 +646,7 @@ bool VideoStreamInfo::show()
             {
                 if (mCurSelectFrame[mCurSelectTrack] >= getMp4DataShare().tracksIFrameList[mCurSelectTrack].back())
                 {
-                    if (getAppConfigure().loopPlay)
+                    if (AppConfigures::RestartOnEnd == getAppConfigure().playStrategy)
                     {
                         mCurSelectFrame[mCurSelectTrack] = getMp4DataShare().tracksIFrameList[mCurSelectTrack].front();
                         mHistogramScrollPos              = 0;
@@ -668,7 +668,7 @@ bool VideoStreamInfo::show()
             {
                 if (mCurSelectFrame[mCurSelectTrack] >= getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
                 {
-                    if (getAppConfigure().loopPlay)
+                    if (AppConfigures::RestartOnEnd == getAppConfigure().playStrategy)
                     {
                         mCurSelectFrame[mCurSelectTrack] = 0;
                         mHistogramScrollPos              = 0;

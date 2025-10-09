@@ -36,6 +36,9 @@ public:
     virtual bool renderUI() override;
     void         exit() override;
 
+protected:
+    void initSettingsWindowInternal() override;
+
 private:
     void startParseFile(const std::string &file);
     void resetFileInfo();
@@ -62,7 +65,7 @@ private:
     void chunkTableClicked(size_t trackIdx, size_t rowIdx, size_t colIdx);
     void saveCurrentData(const std::string &fileName, size_t size);
 
-    int updateData(int type, size_t trackIdx, size_t itemIdx);
+    int  updateData(int type, size_t trackIdx, size_t itemIdx);
     void reset();
 
 private:
@@ -97,7 +100,7 @@ private:
     std::map<const Mp4BoxData *, ImGui::ImGuiItemTable> mBoxInfoTables;
     std::vector<ImGui::ImGuiItemTable>                  mSampleDataTables;
     std::vector<ImGui::ImGuiItemTable>                  mChunkDataTables;
-    VideoStreamInfo                              mVideoStreamInfo;
+    VideoStreamInfo                                     mVideoStreamInfo;
 
     ImGui::ImGuiBinaryViewer mBoxBinaryViewer = ImGui::ImGuiBinaryViewer("Box Data##Binary", true);
     ImGui::ImGuiBinaryViewer mDataViewer      = ImGui::ImGuiBinaryViewer("Binary Data##Data");
