@@ -76,8 +76,14 @@ public:
     void                       clearData();
 
     int decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats);
-    // 0 - seek to key frame before; 1 - frame in cache; 2 - continue decode to the frame; -1 - seek fail
-    int seekToFrame(uint32_t trackIdx, uint32_t frameIdx, uint32_t &keyFrameIdx);
+    enum SeekResult
+    {
+        SeekToKeyFrame        = 0,
+        FrameInCache          = 1,
+        ContinueDecodeToFrame = 2,
+        SeekFail              = -1,
+    };
+    SeekResult seekToFrame(uint32_t trackIdx, uint32_t frameIdx, uint32_t &keyFrameIdx);
 
     int saveFrameToFile(uint32_t trackIdx, uint32_t frameIdx);
 

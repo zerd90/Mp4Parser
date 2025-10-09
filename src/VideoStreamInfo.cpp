@@ -154,14 +154,14 @@ VideoStreamInfo::VideoStreamInfo()
         [this](float progress)
         {
             uint32_t frameIdx = (uint32_t)(progress * mTotalVideoFrameCount);
-            if (seekToFrame(frameIdx) < 0)
+            if (seekToFrame(frameIdx, true) < 0)
                 return;
             mSelectChanged = true;
         },
         [this]() -> float { return (float)mCurSelectFrame[mCurSelectTrack] / mTotalVideoFrameCount; });
 }
 
-int VideoStreamInfo::seekToFrame(uint32_t frameIdx)
+int VideoStreamInfo::seekToFrame(uint32_t frameIdx, bool seekToIFrame)
 {
     auto ptsList = getMp4DataShare().tracksFramePtsList.find(mCurSelectTrack);
     if (ptsList == getMp4DataShare().tracksFramePtsList.end() || frameIdx >= ptsList->second.size())
@@ -171,19 +171,34 @@ int VideoStreamInfo::seekToFrame(uint32_t frameIdx)
     int      ret         = getMp4DataShare().seekToFrame(mCurSelectTrack, ptsList->second[frameIdx], keyFrameIdx);
     if (ret < 0)
         return ret;
-
-    mSeekToFrame = frameIdx;
-    if (ret == 0)
+    if (seekToIFrame)
     {
-        mCurSelectFrame[mCurSelectTrack] = keyFrameIdx;
+        if (Mp4ParseData::SeekToKeyFrame == ret || Mp4ParseData::ContinueDecodeToFrame == ret)
+        {
+            mSeekToFrame                     = keyFrameIdx;
+            mCurSelectFrame[mCurSelectTrack] = keyFrameIdx;
+        }
+        else if (Mp4ParseData::FrameInCache == ret)
+        {
+            mSeekToFrame                     = frameIdx;
+            mCurSelectFrame[mCurSelectTrack] = frameIdx;
+        }
     }
-    else if (ret == 1)
+    else
     {
-        mCurSelectFrame[mCurSelectTrack] = frameIdx;
-    }
-    else if (ret == 2)
-    {
-        mCurSelectFrame[mCurSelectTrack]++;
+        mSeekToFrame = frameIdx;
+        if (Mp4ParseData::SeekToKeyFrame == ret || Mp4ParseData::ContinueDecodeToFrame == ret)
+        {
+            mCurSelectFrame[mCurSelectTrack] = keyFrameIdx;
+        }
+        else if (Mp4ParseData::FrameInCache == ret)
+        {
+            mCurSelectFrame[mCurSelectTrack] = frameIdx;
+        }
+        else if (Mp4ParseData::ContinueDecodeToFrame == ret)
+        {
+            mCurSelectFrame[mCurSelectTrack]++;
+        }
     }
 
     mIsSeeking = true;
@@ -317,7 +332,7 @@ bool VideoStreamInfo::drawHistogram(bool updateScroll)
                                           ImVec2(colPos.x + colSize.x, mHistogramPos.y + histogramShowSize.y)))
         {
             BeginTooltip();
-            ImGui::Text("FrameIdx: %d", frameIdx);
+            ImGui::Text("FrameIdx: %d", frameIdx + 1);
             EndTooltip();
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             {
@@ -628,13 +643,13 @@ bool VideoStreamInfo::show()
         if (mCurSelectFrame[mCurSelectTrack] == mSeekToFrame)
         {
             mIsSeeking = false;
-            SET_APPLICATION_STATUS("Seeking To Frame %d Done", mSeekToFrame);
+            SET_APPLICATION_STATUS("Seeking To Frame %d Done", mSeekToFrame + 1);
         }
         else
         {
             mCurSelectFrame[mCurSelectTrack]++;
             playNextFrame = true;
-            SET_APPLICATION_STATUS("Seeking To Frame %d...now at %d", mSeekToFrame, mCurSelectFrame[mCurSelectTrack]);
+            SET_APPLICATION_STATUS("Seeking To Frame %d...now at %d", mSeekToFrame + 1, mCurSelectFrame[mCurSelectTrack]);
         }
     }
 

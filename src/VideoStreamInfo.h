@@ -59,7 +59,7 @@ private:
     void showFrameInfo();
     void showFrameDisplay();
     bool showHistogramAndFrameInfo(bool updateScroll);
-    int  seekToFrame(uint32_t frameIdx);
+    int  seekToFrame(uint32_t frameIdx, bool seekToIFrame = false);
 
     int saveFrameToFile();
 

@@ -44,11 +44,11 @@ int Mp4ParseData::startParse(PARSE_OPERATION_E op)
     return start();
 }
 
-int Mp4ParseData::seekToFrame(uint32_t trackIdx, uint32_t frameIdx, uint32_t &keyFrameIdx)
+Mp4ParseData::SeekResult Mp4ParseData::seekToFrame(uint32_t trackIdx, uint32_t frameIdx, uint32_t &keyFrameIdx)
 {
     auto trackDecoder = mVideoDecoders.find(trackIdx);
     if (trackDecoder == mVideoDecoders.end())
-        return -1;
+        return SeekFail;
 
     auto &decoder = trackDecoder->second;
 
@@ -56,14 +56,14 @@ int Mp4ParseData::seekToFrame(uint32_t trackIdx, uint32_t frameIdx, uint32_t &ke
 
     auto &samples = tracksInfo[trackIdx].mediaInfo->samplesInfo;
     if (frameIdx >= samples.size())
-        return -1;
+        return SeekFail;
 
     for (auto &cache : mDecodeFrameCache)
     {
         if (cache.ptsMs == samples[frameIdx].ptsMs)
         {
             Z_INFO("Got Cache With Pts {}\n", cache.ptsMs);
-            return 1;
+            return FrameInCache;
         }
     }
 
@@ -92,15 +92,15 @@ int Mp4ParseData::seekToFrame(uint32_t trackIdx, uint32_t frameIdx, uint32_t &ke
         }
     }
 
+    keyFrameIdx = seekFrameIdx;
     if (needSeek)
     {
         avcodec_flush_buffers(decoder.get());
         mDecodeFrameCache.clear();
         mTracksDecodeStat[trackIdx].lastExtractFrameIdx = seekFrameIdx - 1;
-        keyFrameIdx                                     = seekFrameIdx;
-        return 0;
+        return SeekToKeyFrame;
     }
-    return 2;
+    return ContinueDecodeToFrame;
 }
 
 int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame &frame,
