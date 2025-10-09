@@ -218,7 +218,7 @@ int Mp4ParseData::sendPacketToDecoder(uint32_t trackIdx, uint32_t frameIdx)
     }
     mTracksDecodeStat[trackIdx].lastExtractFrameIdx = frameIdx;
 
-    printf("send packet pts %" PRId64 "\n", packet->pts);
+    Z_INFO("send packet pts %" PRId64 "\n", packet->pts);
 
     return 0;
 }
@@ -244,7 +244,7 @@ int Mp4ParseData::decodeOneFrame(uint32_t trackIdx, MyAVFrame &frame)
         ret = decoder.receiveFrame(frame);
         if (ret == 0)
         {
-            printf("get frame pts %" PRId64 "\n", frame->pts);
+            Z_INFO("get frame pts %" PRId64 "\n", frame->pts);
             break;
         }
         else if (ret < 0)

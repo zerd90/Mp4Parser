@@ -8,6 +8,8 @@
 #include "timer.h"
 #include "ImGuiApplication.h"
 
+#include "logger.h"
+
 using std::string;
 using namespace ImGui;
 
@@ -237,7 +239,7 @@ bool VideoStreamInfo::drawHistogram(bool updateScroll)
             else
                 mHistogramScrollPos = mCurSelectFrame[mCurSelectTrack] - showCols / 3;
         }
-        printf("mCurSelectFrame %d mHistogramScrollPos = %lld\n", mCurSelectFrame[mCurSelectTrack], mHistogramScrollPos);
+        Z_INFO("mCurSelectFrame %d mHistogramScrollPos = %lld\n", mCurSelectFrame[mCurSelectTrack], mHistogramScrollPos);
     }
 
     if (mHistogramScrollPos < 0)
@@ -850,7 +852,6 @@ void VideoStreamInfo::showFrameDisplay()
 
     ImVec2 controlPanelStart = ImGui::GetCursorScreenPos();
     mPlayProgressBar.show();
-    printf("%d\n", IsWindowFocused(ImGuiFocusedFlags_ChildWindows));
     if (mIsPlaying)
     {
         mPauseButton.show();
