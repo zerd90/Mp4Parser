@@ -756,11 +756,10 @@ int Mp4ParseData::saveFrameToFile(uint32_t trackIdx, uint32_t frameIdx)
         return -1;
     }
 
-    string filePath =
-        localToUtf8(mParser->asBox()->getBoxTypeStr()) + string("_frame_") + std::to_string(frameIdx) + string(".jpg");
-    filePath = (fs::path(getAppConfigure().saveFramePath) / filePath).string();
+    string filePath = fs::u8path(curFilePath).stem().u8string() + string("_frame_") + std::to_string(frameIdx) + string(".jpg");
+    filePath = (fs::u8path(getAppConfigure().saveFramePath) / fs::u8path(filePath)).string();
 
-    FILE *fp = fopen(utf8ToLocal(filePath).c_str(), "wb");
+    FILE *fp = fopen(filePath.c_str(), "wb");
     if (!fp)
     {
         Z_ERR("Open File {} Fail\n", filePath);
