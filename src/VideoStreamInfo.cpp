@@ -94,10 +94,10 @@ void VideoStreamInfo::updateFrameTexture()
     MyAVFrame frame;
     auto     &ptsList      = getMp4DataShare().tracksFramePtsList[mCurSelectTrack];
     uint32_t  realFrameIdx = ptsList[mCurSelectFrame[mCurSelectTrack]];
+    updateFrameInfo(frame);
+
     if (getMp4DataShare().decodeFrameAt(mCurSelectTrack, realFrameIdx, frame, {AV_PIX_FMT_RGBA}) < 0)
         return;
-
-    updateFrameInfo(frame);
 
     updateImageTexture(&mFrameTexture, frame->data[0], frame->width, frame->height, frame->linesize[0]);
 
@@ -187,7 +187,7 @@ int VideoStreamInfo::seekToFrame(uint32_t frameIdx, bool seekToIFrame)
     else
     {
         mSeekToFrame = frameIdx;
-        if (Mp4ParseData::SeekToKeyFrame == ret || Mp4ParseData::ContinueDecodeToFrame == ret)
+        if (Mp4ParseData::SeekToKeyFrame == ret)
         {
             mCurSelectFrame[mCurSelectTrack] = keyFrameIdx;
         }
@@ -254,7 +254,7 @@ bool VideoStreamInfo::drawHistogram(bool updateScroll)
             else
                 mHistogramScrollPos = mCurSelectFrame[mCurSelectTrack] - showCols / 3;
         }
-        Z_INFO("mCurSelectFrame %d mHistogramScrollPos = %lld\n", mCurSelectFrame[mCurSelectTrack], mHistogramScrollPos);
+        Z_INFO("mCurSelectFrame {} mHistogramScrollPos = {}\n", mCurSelectFrame[mCurSelectTrack], mHistogramScrollPos);
     }
 
     if (mHistogramScrollPos < 0)
