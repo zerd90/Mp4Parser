@@ -1032,3 +1032,8 @@ int VideoStreamInfo::saveFrameToFile()
 
     return getMp4DataShare().saveFrameToFile(mCurSelectTrack, realIdx);
 }
+
+void VideoStreamInfo::setImageSampleType(ImGui::ImGuiImageSampleType sampleType)
+{
+    mImageDisplay.setSampleType(sampleType);
+}

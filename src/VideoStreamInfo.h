@@ -47,6 +47,7 @@ public:
     void resetData();
     void updateFrameTexture();
     void updateFrameInfo(unsigned int trackIdx, uint32_t frameIdx, H26X_FRAME_TYPE_E frameType);
+    void setImageSampleType(ImGui::ImGuiImageSampleType sampleType);
 
 private:
     void updateData();

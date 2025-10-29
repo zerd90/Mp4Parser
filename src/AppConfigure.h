@@ -2,6 +2,7 @@
 #define _APP_CONFIGURE_H_
 
 #include <string>
+#include "imgui_image_render.h"
 
 class AppConfigures
 {
@@ -23,6 +24,8 @@ public:
     PlayStrategy playStrategy = RestartOnEnd;
 
     std::string saveFramePath = "";
+
+    ImGui::ImGuiImageSampleType imageSampleType = ImGui::ImGuiImageSampleType_Linear;
 
     // not saving
     bool showBoxBinaryData = false;

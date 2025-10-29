@@ -950,6 +950,19 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
         SettingValue::SettingInt, "Action On End Playing",
         [](const void *val) { getAppConfigure().playStrategy = (AppConfigures::PlayStrategy) * (int *)val; },
         [](void *val) { *(int *)val = getAppConfigure().playStrategy; });
+    addSetting(
+        SettingValue::SettingInt, "Image Sample Method",
+        [this](const void *val)
+        {
+            int sampleType = *(int *)val;
+            if (INVALID_SAMPLE_TYPE(sampleType))
+            {
+                sampleType = ImGuiImageSampleType_Linear;
+            }
+            getAppConfigure().imageSampleType = (ImGuiImageSampleType)sampleType;
+            mVideoStreamInfo.setImageSampleType(getAppConfigure().imageSampleType);
+        },
+        [](void *val) { *(int *)val = getAppConfigure().imageSampleType; });
 
     addMenu({"Menu", "Open File"},
             [this]()
@@ -1213,6 +1226,13 @@ void Mp4ParserApp::initSettingsWindowInternal()
                                   {AppConfigures::RestartOnEnd, "Restart"},
                                   {AppConfigures::StopOnEnd,    "Stop"   },
     });
+    addSettingWindowItemCombo(category, "Image Sample Method", (ComboTag *)&getAppConfigure().imageSampleType,
+                              {
+                                  {ImGui::ImGuiImageSampleType_Linear,  "Bilinear"   },
+                                  {ImGui::ImGuiImageSampleType_Nearest, "Nearest"    },
+                                  {ImGui::ImGuiImageSampleType_Area,    "Area Sample"},
+    },
+                              [&]() { mVideoStreamInfo.setImageSampleType(getAppConfigure().imageSampleType); });
 
     addSettingWindowItemBool({"Info"}, "More Debug Log", &getAppConfigure().needShowDebugLog);
 }
