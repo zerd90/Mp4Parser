@@ -65,9 +65,8 @@ void PlayProgressBar::show()
     ImGui::SetCursorScreenPos(barPos + ImVec2(0, sBlockSize.y + ImGui::GetStyle().ItemSpacing.y));
 }
 
-void VideoStreamInfo::updateFrameInfo(MyAVFrame &frame)
+void VideoStreamInfo::updateCurrFrameInfo()
 {
-    IM_UNUSED(frame);
     if (!getMp4DataShare().dataAvailable)
     {
         mCurrentFrameInfo.reset();
@@ -89,17 +88,84 @@ void VideoStreamInfo::updateFrameInfo(MyAVFrame &frame)
     mCurrentFrameInfo.ptsMs       = sample.ptsMs;
 }
 
+static std::vector<AVPixelFormat> supportFormats = {
+    AV_PIX_FMT_RGBA,     AV_PIX_FMT_BGRA,    AV_PIX_FMT_YUV444P,  AV_PIX_FMT_YUVJ444P, AV_PIX_FMT_YUV422P,
+    AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUV411P, AV_PIX_FMT_YUVJ411P, AV_PIX_FMT_YUV420P,  AV_PIX_FMT_YUVJ420P,
+    AV_PIX_FMT_NV12,     AV_PIX_FMT_NV21,    AV_PIX_FMT_GRAY8,
+#if IMGUI_RENDER_API == IMGUI_RENDER_API_DX11
+    AV_PIX_FMT_D3D11,
+#endif
+};
+
+ImGui::ImGuiImageFormat transFormat(AVPixelFormat format)
+{
+    switch (format)
+    {
+        default:
+            return ImGui::ImGuiImageFormat_None;
+        case AV_PIX_FMT_RGBA:
+            return ImGui::ImGuiImageFormat_RGBA;
+        case AV_PIX_FMT_BGRA:
+            return ImGui::ImGuiImageFormat_BGRA;
+        case AV_PIX_FMT_YUV444P:
+        case AV_PIX_FMT_YUVJ444P:
+            return ImGui::ImGuiImageFormat_YUV444P;
+        case AV_PIX_FMT_YUV422P:
+        case AV_PIX_FMT_YUVJ422P:
+            return ImGui::ImGuiImageFormat_YUV422P;
+        case AV_PIX_FMT_YUV411P:
+        case AV_PIX_FMT_YUVJ411P:
+            return ImGui::ImGuiImageFormat_YUV411P;
+        case AV_PIX_FMT_YUV420P:
+        case AV_PIX_FMT_YUVJ420P:
+            return ImGui::ImGuiImageFormat_YUV420P;
+        case AV_PIX_FMT_NV12:
+            return ImGui::ImGuiImageFormat_NV12;
+        case AV_PIX_FMT_NV21:
+            return ImGui::ImGuiImageFormat_NV21;
+        case AV_PIX_FMT_GRAY8:
+            return ImGui::ImGuiImageFormat_Gray;
+#if IMGUI_RENDER_API == IMGUI_RENDER_API_DX11
+        case AV_PIX_FMT_D3D11:
+            return ImGui::ImGuiImageFormat_Dx11;
+#endif
+    }
+}
 void VideoStreamInfo::updateFrameTexture()
 {
     MyAVFrame frame;
     auto     &ptsList      = getMp4DataShare().tracksFramePtsList[mCurSelectTrack];
     uint32_t  realFrameIdx = ptsList[mCurSelectFrame[mCurSelectTrack]];
-    updateFrameInfo(frame);
+    updateCurrFrameInfo();
 
-    if (getMp4DataShare().decodeFrameAt(mCurSelectTrack, realFrameIdx, frame, {AV_PIX_FMT_RGBA}) < 0)
+    if (getMp4DataShare().decodeFrameAt(mCurSelectTrack, realFrameIdx, frame, supportFormats) < 0)
         return;
 
-    updateImageTexture(&mFrameTexture, frame->data[0], frame->width, frame->height, frame->linesize[0]);
+    ImageData imageData;
+    imageData.format = transFormat((AVPixelFormat)frame->format);
+    if (imageData.format == ImGui::ImGuiImageFormat_None)
+        return;
+    if (AV_PIX_FMT_YUVJ444P == frame->format || AV_PIX_FMT_YUVJ422P == frame->format || AV_PIX_FMT_YUVJ411P == frame->format
+        || AV_PIX_FMT_YUVJ420P == frame->format || frame->color_range == AVCOL_RANGE_JPEG)
+    {
+        imageData.colorRange = ImGui::ImGuiImageColorRange_0_255;
+    }
+    else
+    {
+        imageData.colorRange = ImGui::ImGuiImageColorRange_16_235;
+    }
+
+    int planeCount = getPlaneCount(imageData.format);
+    for (int i = 0; i < planeCount; i++)
+    {
+        imageData.plane[i]  = frame->data[i];
+        imageData.stride[i] = frame->linesize[i];
+    }
+
+    imageData.width  = frame->width;
+    imageData.height = frame->height;
+
+    updateImageTexture(imageData, mFrameTexture);
 
     mImageDisplay.setTexture(mFrameTexture);
     mFrameDisplay.open();
@@ -207,7 +273,7 @@ int VideoStreamInfo::seekToFrame(uint32_t frameIdx, bool seekToIFrame)
 
 VideoStreamInfo::~VideoStreamInfo()
 {
-    freeTexture(&mFrameTexture);
+    freeTexture(mFrameTexture);
 }
 
 bool VideoStreamInfo::drawHistogram(bool updateScroll)
@@ -813,7 +879,7 @@ void VideoStreamInfo::resetData()
 
 void VideoStreamInfo::updateData()
 {
-    freeTexture(&mFrameTexture);
+    freeTexture(mFrameTexture);
     mImageDisplay.clear();
 
     if (getMp4DataShare().videoTracksIdx.empty())

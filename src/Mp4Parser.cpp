@@ -1475,7 +1475,8 @@ void Mp4ParserApp::startParseFile(const std::string &file_path)
     }
     setStatus(Log::format("Parsing {}...\n", getProperFilePathForStatus(file_path)));
 }
-void Mp4ParserApp::exit()
+void Mp4ParserApp::exitInternal()
 {
-    getMp4DataShare().stop();
+    getMp4DataShare().clear();
+    mVideoStreamInfo.resetData();
 }

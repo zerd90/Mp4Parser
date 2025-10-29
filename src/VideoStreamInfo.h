@@ -8,10 +8,6 @@
 #include "ImGuiWindow.h"
 #include "Mp4Types.h"
 #include "imgui.h"
-#include "imgui_common_tools.h"
-
-#define MYFFMPEG_DEBUG
-#include "Myffmpeg.h"
 
 #define MAX_VIDEO_FRAMES  (180000)
 #define HIST_PAGE_SAMPLES (200)
@@ -55,7 +51,7 @@ public:
 private:
     void updateData();
     bool drawHistogram(bool updateScroll);
-    void updateFrameInfo(MyAVFrame &frame);
+    void updateCurrFrameInfo();
     void showFrameInfo();
     void showFrameDisplay();
     bool showHistogramAndFrameInfo(bool updateScroll);
@@ -90,7 +86,7 @@ private:
 
     uint32_t mTotalVideoFrameCount = 0;
 
-    ImGui::TextureData mFrameTexture;
+    ImGui::TextureSource mFrameTexture;
     struct FrameInfo
     {
         uint32_t    frameIdx;

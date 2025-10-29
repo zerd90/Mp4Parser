@@ -281,6 +281,13 @@ int Mp4ParseData::decodeOneFrame(uint32_t trackIdx, MyAVFrame &frame)
     return 0;
 }
 
+bool exists(const std::vector<AVPixelFormat> &acceptFormats, AVPixelFormat format)
+{
+    if (acceptFormats.empty())
+        return true;
+    return std::find(acceptFormats.begin(), acceptFormats.end(), format) != acceptFormats.end();
+}
+
 int Mp4ParseData::transformFrameFormat(MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats)
 {
     Z_INFO("frame format {}\n", frame->format);
@@ -289,7 +296,7 @@ int Mp4ParseData::transformFrameFormat(MyAVFrame &frame, const std::vector<AVPix
 
     int ret = 0;
 
-    if (std::find(acceptFormats.begin(), acceptFormats.end(), (AVPixelFormat)frame->format) != acceptFormats.end())
+    if (exists(acceptFormats, (AVPixelFormat)frame->format))
     {
         return 0;
     }
@@ -308,8 +315,7 @@ int Mp4ParseData::transformFrameFormat(MyAVFrame &frame, const std::vector<AVPix
         frame = trans_frame;
     }
 
-    if (acceptFormats.empty()
-        || std::find(acceptFormats.begin(), acceptFormats.end(), (AVPixelFormat)frame->format) != acceptFormats.end())
+    if (exists(acceptFormats, (AVPixelFormat)frame->format))
     {
         return 0;
     }
@@ -643,6 +649,7 @@ std::unique_ptr<uint8_t[]> Mp4ParseData::encodeFrameToJpeg(MyAVFrame &frame, uin
 {
     MyAVCodecContext encoder;
     MyAVPacket       packet;
+    MyAVFrame        srcFrame;
     int              ret = 0;
 
     if (createJpegCodecs(frame->width, frame->height, encoder) < 0)
@@ -650,14 +657,23 @@ std::unique_ptr<uint8_t[]> Mp4ParseData::encodeFrameToJpeg(MyAVFrame &frame, uin
         Z_ERR("create jpeg encoder fail {}\n", ffmpeg_make_err_string(ret));
         return nullptr;
     }
+    if (isHardwareFormat((AVPixelFormat)frame->format))
+    {
+        av_hwframe_transfer_data(srcFrame.get(), frame.get(), 0);
+        frame.copyPropsTo(srcFrame);
+    }
+    else
+    {
+        frame.copyTo(srcFrame);
+    }
 
-    if (transformFrameFormat(frame, {AV_PIX_FMT_YUVJ420P}) < 0)
+    if (transformFrameFormat(srcFrame, {AV_PIX_FMT_YUVJ420P}) < 0)
     {
         Z_ERR("transform frame format fail {}\n", ffmpeg_make_err_string(ret));
         return nullptr;
     }
 
-    ret = encoder.sendFrame(frame);
+    ret = encoder.sendFrame(srcFrame);
     if (ret < 0)
     {
         Z_ERR("encode frame to jpeg fail {}\n", ffmpeg_make_err_string(ret));
@@ -757,7 +773,7 @@ int Mp4ParseData::saveFrameToFile(uint32_t trackIdx, uint32_t frameIdx)
     }
 
     string filePath = fs::u8path(curFilePath).stem().u8string() + string("_frame_") + std::to_string(frameIdx) + string(".jpg");
-    filePath = (fs::u8path(getAppConfigure().saveFramePath) / fs::u8path(filePath)).u8string();
+    filePath        = (fs::u8path(getAppConfigure().saveFramePath) / fs::u8path(filePath)).u8string();
 
     FILE *fp = fopen(utf8ToLocal(filePath).c_str(), "wb");
     if (!fp)

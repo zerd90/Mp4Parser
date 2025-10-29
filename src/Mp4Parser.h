@@ -34,7 +34,7 @@ public:
 
     virtual void presetInternal() override;
     virtual bool renderUI() override;
-    void         exit() override;
+    void         exitInternal() override;
 
 protected:
     void initSettingsWindowInternal() override;
