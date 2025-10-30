@@ -134,8 +134,10 @@ ImGui::ImGuiImageFormat transFormat(AVPixelFormat format)
 void VideoStreamInfo::updateFrameTexture()
 {
     MyAVFrame frame;
-    auto     &ptsList      = getMp4DataShare().tracksFramePtsList[mCurSelectTrack];
-    uint32_t  realFrameIdx = ptsList[mCurSelectFrame[mCurSelectTrack]];
+    auto     &ptsList = getMp4DataShare().tracksFramePtsList[mCurSelectTrack];
+    if (ptsList.empty())
+        return;
+    uint32_t realFrameIdx = ptsList[mCurSelectFrame[mCurSelectTrack]];
     updateCurrFrameInfo();
 
     if (getMp4DataShare().decodeFrameAt(mCurSelectTrack, realFrameIdx, frame, supportFormats) < 0)
@@ -693,7 +695,7 @@ uint32_t getPrevIFrame(std::vector<uint32_t> iFrameList, uint32_t curFrame)
 
 bool VideoStreamInfo::show()
 {
-    if (getMp4DataShare().videoTracksIdx.empty())
+    if (getMp4DataShare().videoTracksIdx.empty() || getMp4DataShare().tracksFramePtsList[mCurSelectTrack].empty())
         return false;
 
     ImVec2 contentRegion = ImGui::GetContentRegionAvail();

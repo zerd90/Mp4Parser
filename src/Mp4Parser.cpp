@@ -1061,7 +1061,7 @@ void Mp4ParserApp::reset()
     mDataViewer.setUserData(nullptr);
     mDataViewer.close();
 
-    setTitle(mApplicationName);
+    setApplicationTitle(mApplicationName);
     setStatus("");
 }
 
@@ -1260,7 +1260,7 @@ bool Mp4ParserApp::renderUI()
                 fs::path filePath(filePathStr); // use local encode file path, not utf8
                 string   newTitle = filePath.filename().string();
                 newTitle          = localToUtf8(newTitle);
-                setTitle(newTitle);
+                setApplicationTitle(newTitle);
 
                 getMp4DataShare().startParse(OPERATION_PARSE_FRAME_TYPE);
                 setStatus(combineString("Parse ", getProperFilePathForStatus(getMp4DataShare().curFilePath),
