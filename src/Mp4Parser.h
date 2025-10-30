@@ -75,22 +75,20 @@ private:
     ImGuiID mDockIdLeft  = 0;
     ImGuiID mDockIdRight = 0;
 
-    bool m_metrics_show = false;
-
     IImGuiWindow mInfoWindow;
 
-    BoxInfo *cur_box_select   = nullptr;
-    int      cur_track_select = -1;
+    BoxInfo *mCurrBoxSelect   = nullptr;
+    int      mCurrTrackSelect = -1;
 
     enum
     {
         FOCUS_ON_BOXES  = 0,
         FOCUS_ON_TRACKS = 1,
-    } m_focus_on = FOCUS_ON_BOXES;
+    } mFocusOn = FOCUS_ON_BOXES;
 
-    bool m_focus_changed = false;
+    bool mFocusChanged = false;
 
-    int  m_box_num           = 0;
+    int  mBoxCount           = 0;
     bool mSomeTreeNodeOpened = false;
 
     std::shared_ptr<BoxInfo> mVirtFileBox;

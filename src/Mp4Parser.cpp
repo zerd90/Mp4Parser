@@ -195,7 +195,7 @@ void Mp4ParserApp::ShowTreeNode(BoxInfo *cur_box)
 
     bool node_opened = false;
 
-    if (cur_box_select == cur_box)
+    if (mCurrBoxSelect == cur_box)
         node_flags |= ImGuiTreeNodeFlags_Selected;
     if (cur_box->sub_list.size() == 0)
     {
@@ -220,11 +220,11 @@ void Mp4ParserApp::ShowTreeNode(BoxInfo *cur_box)
     }
     if (isItemClicked())
     {
-        if (cur_box_select != cur_box)
-            m_focus_changed = true;
-        cur_box_select = cur_box;
+        if (mCurrBoxSelect != cur_box)
+            mFocusChanged = true;
+        mCurrBoxSelect = cur_box;
         mBoxBinaryViewer.setUserData(cur_box);
-        Z_INFO("cur select {}| clicked {} open {}\n", cur_box_select->box_type, isItemClicked(), node_opened);
+        Z_INFO("cur select {}| clicked {} open {}\n", mCurrBoxSelect->box_type, isItemClicked(), node_opened);
     }
 
     if (node_opened)
@@ -255,11 +255,11 @@ void Mp4ParserApp::ShowBoxesTreeView()
         ShowTreeNode(mVirtFileBox.get());
     }
 
-    if (m_focus_on != FOCUS_ON_BOXES)
+    if (mFocusOn != FOCUS_ON_BOXES)
     {
         Z_INFO("focus on boxes\n");
-        m_focus_changed = true;
-        m_focus_on      = FOCUS_ON_BOXES;
+        mFocusChanged = true;
+        mFocusOn      = FOCUS_ON_BOXES;
     }
     ImGui::EndChild();
 
@@ -282,7 +282,7 @@ void Mp4ParserApp::ShowTracksTreeView()
 
         for (size_t idx = 0; idx < getMp4DataShare().tracksInfo.size(); idx++)
         {
-            if (cur_track_select == (int)idx)
+            if (mCurrTrackSelect == (int)idx)
                 node_flags |= ImGuiTreeNodeFlags_Selected;
             else
                 node_flags &= (~ImGuiTreeNodeFlags_Selected);
@@ -292,19 +292,19 @@ void Mp4ParserApp::ShowTracksTreeView()
             tree_node_id++;
             if (isItemClicked())
             {
-                if (cur_track_select != (int)idx)
+                if (mCurrTrackSelect != (int)idx)
                 {
-                    m_focus_changed  = true;
-                    cur_track_select = (int)idx;
+                    mFocusChanged  = true;
+                    mCurrTrackSelect = (int)idx;
                 }
             }
         }
     }
 
-    if (m_focus_on != FOCUS_ON_TRACKS)
+    if (mFocusOn != FOCUS_ON_TRACKS)
     {
-        m_focus_changed = true;
-        m_focus_on      = FOCUS_ON_TRACKS;
+        mFocusChanged = true;
+        mFocusOn      = FOCUS_ON_TRACKS;
         Z_INFO("focus on tracks\n");
     }
 
@@ -812,7 +812,7 @@ void Mp4ParserApp::updateSamplesTable()
 
 void Mp4ParserApp::updateChunksTable()
 {
-    if (cur_track_select >= (int)getMp4DataShare().tracksInfo.size())
+    if (mCurrTrackSelect >= (int)getMp4DataShare().tracksInfo.size())
         return;
     mChunkDataTables.resize(getMp4DataShare().tracksInfo.size());
     for (size_t i = 0; i < mChunkDataTables.size(); i++)
@@ -884,7 +884,7 @@ void Mp4ParserApp::showMp4InfoTab()
     ImGui::Begin("Leading", nullptr);
     ImGui::BeginTabBar("Leadings", ImGuiTabBarFlags_FittingPolicyResizeDown);
 
-    if (ImGui::IsKeyPressed(ImGuiKey_F) && ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && m_focus_on == FOCUS_ON_BOXES)
+    if (ImGui::IsKeyPressed(ImGuiKey_F) && ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && mFocusOn == FOCUS_ON_BOXES)
         set_all_open_state(mVirtFileBox.get(), mSomeTreeNodeOpened);
 
     ShowBoxesTreeView();
@@ -992,7 +992,7 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
                 else
                 {
                     Z_INFO("Selected filename {}\n", filePath);
-                    startParseFile(filePath);
+                    mToParseFile = filePath;
                 }
             });
 
@@ -1041,10 +1041,9 @@ void Mp4ParserApp::reset()
 {
     getMp4DataShare().clear();
 
-    mToParseFile.clear();
-    cur_box_select      = nullptr;
-    cur_track_select    = -1;
-    m_box_num           = 0;
+    mCurrBoxSelect      = nullptr;
+    mCurrTrackSelect    = -1;
+    mBoxCount           = 0;
     mSomeTreeNodeOpened = false;
     mVirtFileBox.reset();
     mAllBoxes.clear();
@@ -1079,15 +1078,15 @@ void Mp4ParserApp::WrapDatacheckBox()
 }
 void Mp4ParserApp::ShowInfoView()
 {
-    if (m_focus_changed)
+    if (mFocusChanged)
     {
-        Z_INFO("Focus on {}, select {}:{}\n", m_focus_on, cur_box_select ? cur_box_select->box_type : "null", cur_track_select);
-        m_focus_changed = false;
+        Z_INFO("Focus on {}, select {}:{}\n", mFocusOn, mCurrBoxSelect ? mCurrBoxSelect->box_type : "null", mCurrTrackSelect);
+        mFocusChanged = false;
     }
 
-    if (FOCUS_ON_BOXES == m_focus_on)
+    if (FOCUS_ON_BOXES == mFocusOn)
     {
-        if (cur_box_select)
+        if (mCurrBoxSelect)
         {
             if (getAppConfigure().showBoxBinaryData)
             {
@@ -1105,34 +1104,34 @@ void Mp4ParserApp::ShowInfoView()
             }
             else
             {
-                for (size_t item_idx = 0; item_idx < cur_box_select->pdata->size(); item_idx++)
+                for (size_t item_idx = 0; item_idx < mCurrBoxSelect->pdata->size(); item_idx++)
                 {
-                    string key   = cur_box_select->pdata->kvGetKey(item_idx);
-                    auto   value = cur_box_select->pdata->kvGetValue(key);
-                    ShowInfoItem(cur_box_select->box_index, key, *value);
+                    string key   = mCurrBoxSelect->pdata->kvGetKey(item_idx);
+                    auto   value = mCurrBoxSelect->pdata->kvGetValue(key);
+                    ShowInfoItem(mCurrBoxSelect->box_index, key, *value);
                 }
             }
         }
     }
-    else if (FOCUS_ON_TRACKS == m_focus_on)
+    else if (FOCUS_ON_TRACKS == mFocusOn)
     {
-        if (cur_track_select >= 0)
+        if (mCurrTrackSelect >= 0)
         {
-            if (cur_track_select < (int)getMp4DataShare().tracksInfo.size())
+            if (mCurrTrackSelect < (int)getMp4DataShare().tracksInfo.size())
             {
                 ImGui::BeginTabBar("Informations", ImGuiTabBarFlags_FittingPolicyResizeDown);
 
                 if (ImGui::BeginTabItem("Sample Info"))
                 {
                     WrapDatacheckBox();
-                    mSampleDataTables[cur_track_select].show();
+                    mSampleDataTables[mCurrTrackSelect].show();
                     ImGui::EndTabItem();
                 }
 
                 if (ImGui::BeginTabItem("Chunk Info"))
                 {
                     WrapDatacheckBox();
-                    mChunkDataTables[cur_track_select].show();
+                    mChunkDataTables[mCurrTrackSelect].show();
 
                     ImGui::EndTabItem();
                 }
@@ -1153,8 +1152,7 @@ void Mp4ParserApp::dropFile(const vector<string> &filesPath)
 {
     if (filesPath.empty())
         return;
-
-    startParseFile(filesPath[0]);
+    mToParseFile = filesPath[0];
 }
 
 void Mp4ParserApp::presetInternal()
@@ -1239,6 +1237,12 @@ void Mp4ParserApp::initSettingsWindowInternal()
 
 bool Mp4ParserApp::renderUI()
 {
+    if (!mToParseFile.empty())
+    {
+        startParseFile(mToParseFile);
+        mToParseFile.clear();
+    }
+
     if (getMp4DataShare().isRunning())
     {
         if (OPERATION_PARSE_FILE == getMp4DataShare().getCurrentOperation())
@@ -1300,9 +1304,6 @@ bool Mp4ParserApp::renderUI()
     }
 
     ImGui::EndTabBar();
-
-    if (m_metrics_show)
-        ImGui::ShowMetricsWindow(&m_metrics_show);
 
     return justClosed();
 }
@@ -1450,8 +1451,8 @@ shared_ptr<BoxInfo> Mp4ParserApp::getBoxInfo(const Mp4Box *pBox, int layer, int 
 
 void Mp4ParserApp::resetFileInfo()
 {
-    cur_box_select   = nullptr;
-    cur_track_select = -1;
+    mCurrBoxSelect   = nullptr;
+    mCurrTrackSelect = -1;
 
     getMp4DataShare().updateData();
 
@@ -1464,9 +1465,9 @@ void Mp4ParserApp::resetFileInfo()
     mBoxInfoTables.clear();
     updateBoxDataTables(*mVirtFileBox);
 
-    cur_box_select = mVirtFileBox.get();
+    mCurrBoxSelect = mVirtFileBox.get();
     mBoxBinaryViewer.setUserData(mVirtFileBox.get());
-    cur_track_select = 0;
+    mCurrTrackSelect = 0;
 
     // update imgui items
     updateSamplesTable();

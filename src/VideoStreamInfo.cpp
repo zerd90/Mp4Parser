@@ -695,7 +695,8 @@ uint32_t getPrevIFrame(std::vector<uint32_t> iFrameList, uint32_t curFrame)
 
 bool VideoStreamInfo::show()
 {
-    if (getMp4DataShare().videoTracksIdx.empty() || getMp4DataShare().tracksFramePtsList[mCurSelectTrack].empty())
+    if (getMp4DataShare().videoTracksIdx.empty() || getMp4DataShare().tracksFramePtsList[mCurSelectTrack].empty()
+        || (getMp4DataShare().isRunning() && OPERATION_PARSE_FILE == getMp4DataShare().getCurrentOperation()))
         return false;
 
     ImVec2 contentRegion = ImGui::GetContentRegionAvail();
