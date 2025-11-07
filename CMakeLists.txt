@@ -13,15 +13,17 @@ add_subdirectory(Mp4ParseLib Mp4ParseLib)
 # Set This To Your FFmpeg header/library path
 set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
     ${CMAKE_SOURCE_DIR}/3rdlibrary/ffmpeg/include
+    ${CMAKE_SOURCE_DIR}/3rdlibrary/lz4/include
 )
 
 set(LINK_DIRECTORIES ${LINK_DIRECTORIES}
     ${CMAKE_SOURCE_DIR}/3rdlibrary/ffmpeg/lib
+    ${CMAKE_SOURCE_DIR}/3rdlibrary/lz4/lib
 )
 
 add_subdirectory(imgui_base imgui)
 
-set(LINK_LIBRARIES ${LINK_LIBRARIES} avformat avcodec avutil swscale)
+set(LINK_LIBRARIES ${LINK_LIBRARIES} avformat avcodec avutil swscale liblz4_static)
 
 include_directories(${INCLUDE_DIRECTORIES})
 link_directories(${LINK_DIRECTORIES})

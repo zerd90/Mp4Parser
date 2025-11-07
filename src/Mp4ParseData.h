@@ -53,11 +53,18 @@ struct FrameCacheData
     FrameCacheData(FrameCacheData &&)            = default;
     FrameCacheData &operator=(FrameCacheData &&) = default;
 
-    std::unique_ptr<uint8_t[]> jpegData;
-    uint32_t                   jpegSize = 0;
-    uint32_t                   width    = 0;
-    uint32_t                   height   = 0;
-    uint32_t                   ptsMs    = 0;
+    int width  = 0;
+    int height = 0;
+
+    AVPixelFormat format = AV_PIX_FMT_NONE;
+
+    uint32_t originalDataSize   = 0;
+    uint32_t compressedDataSize = 0;
+    uint32_t ptsMs              = 0;
+
+    std::unique_ptr<uint8_t[]> compressedData;
+
+    int lineSize[AV_NUM_DATA_POINTERS] = {0};
 };
 
 class Mp4ParseData : public MyThread

@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <filesystem>
 
+#include "lz4.h"
+
 #include "imgui_common_tools.h"
 #include "ImGuiBaseTypes.h"
 #include "logger.h"
@@ -9,6 +11,11 @@
 #include "Mp4Parser.h"
 #include "Mp4ParseData.h"
 #include "AppConfigure.h"
+
+extern "C"
+{
+#include <libavutil/pixdesc.h>
+}
 
 using std::shared_ptr;
 using std::string;
@@ -36,6 +43,37 @@ Mp4ParseData &getMp4DataShare()
             gDataShare = std::make_shared<Mp4ParseData>();
     }
     return *gDataShare;
+}
+
+int getCachedFrame(FrameCacheData &cacheData, MyAVFrame &frame)
+{
+    frame.getBuffer(cacheData.width, cacheData.height, cacheData.format);
+
+    auto decompressBuffer = std::make_unique<uint8_t[]>(cacheData.originalDataSize);
+
+    uint8_t *compressedDataPtr   = cacheData.compressedData.get();
+    uint8_t *decompressedDataPtr = decompressBuffer.get();
+    int      ret = LZ4_decompress_safe((char *)compressedDataPtr, (char *)decompressedDataPtr, cacheData.compressedDataSize,
+                                       cacheData.originalDataSize);
+    if (ret < 0)
+    {
+        Z_ERR("LZ4 decompression failed with error code {}\n", ret);
+        return -1;
+    }
+
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(cacheData.format);
+
+    uint32_t offset     = 0;
+    int      planeCount = av_pix_fmt_count_planes(cacheData.format);
+    for (int i = 0; i < planeCount; i++)
+    {
+        uint32_t planeHeight   = i > 0 ? AV_CEIL_RSHIFT(cacheData.height, desc->log2_chroma_h) : cacheData.height;
+        uint32_t planeDataSize = cacheData.lineSize[i] * planeHeight;
+        memcpy(frame->data[i], decompressedDataPtr + offset, planeDataSize);
+        offset += planeDataSize;
+    }
+
+    return 0;
 }
 
 int Mp4ParseData::startParse(PARSE_OPERATION_E op)
@@ -123,8 +161,11 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
     {
         if (cache.ptsMs == samples[frameIdx].ptsMs)
         {
-            Z_INFO("Got Cache With Pts {}\n", cache.ptsMs);
-            decodeJpegToFrame(cache.jpegData.get(), cache.jpegSize, frame);
+            auto start = std::chrono::high_resolution_clock::now();
+            getCachedFrame(cache, frame);
+            auto end = std::chrono::high_resolution_clock::now();
+            Z_INFO("Got Cache With Pts {}, Time Taken: {} ms\n", cache.ptsMs,
+                   std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
             frame->pts = samples[frameIdx].ptsMs;
             transformFrameFormat(frame, acceptFormats);
             return 0;
@@ -730,22 +771,68 @@ FrameCacheData::~FrameCacheData() {}
 
 void Mp4ParseData::addFrameToCache(MyAVFrame &frame)
 {
-    std::unique_ptr<uint8_t[]> jpegData;
-    uint32_t                   jpegSize = 0;
+    MyAVFrame transformedFrame;
+    AVFrame  *frameToCache = frame.get();
+    auto      start        = std::chrono::high_resolution_clock::now();
+    if (isHardwareFormat((AVPixelFormat)frame->format))
+    {
+        av_hwframe_transfer_data(transformedFrame.get(), frame.get(), 0);
+        frame.copyPropsTo(transformedFrame);
+        frameToCache = transformedFrame.get();
+    }
+    auto           format     = (AVPixelFormat)frameToCache->format;
+    int            planeCount = av_pix_fmt_count_planes(format);
+    uint32_t       planeDataSize[4];
+    uint32_t       frameDataSize = 0;
+    FrameCacheData cacheData;
 
-    jpegData = encodeFrameToJpeg(frame, jpegSize);
-    if (jpegData == nullptr)
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(format);
+    if (planeCount <= 0 || !desc || 0 == (desc->flags & AV_PIX_FMT_FLAG_PLANAR))
         return;
 
-    FrameCacheData cacheData;
-    cacheData.jpegData = std::move(jpegData);
-    cacheData.jpegSize = jpegSize;
-    cacheData.width    = frame->width;
-    cacheData.height   = frame->height;
-    cacheData.ptsMs    = (uint32_t)frame->pts;
+    for (int i = 0; i < planeCount; i++)
+    {
+        cacheData.lineSize[i] = frameToCache->linesize[i];
+        uint32_t planeHeight  = i > 0 ? AV_CEIL_RSHIFT(frameToCache->height, desc->log2_chroma_h) : frameToCache->height;
+        planeDataSize[i]      = frameToCache->linesize[i] * planeHeight;
+        frameDataSize += planeDataSize[i];
+    }
 
-    Z_INFO("Add Frame Pts {} To Cache\n", frame->pts);
+    auto     frameDataBuffer = std::make_unique<uint8_t[]>(frameDataSize);
+    uint8_t *frameDataPtr    = frameDataBuffer.get();
+
+    size_t offset = 0;
+    for (int i = 0; i < planeCount; i++)
+    {
+        memcpy(frameDataPtr + offset, frameToCache->data[i], planeDataSize[i]);
+        offset += planeDataSize[i];
+    }
+    int  compressBufferSize = LZ4_compressBound((int)frameDataSize);
+    auto compressBuffer     = std::make_unique<uint8_t[]>(compressBufferSize);
+
+    uint8_t *compressedDataPtr = compressBuffer.get();
+
+    int compressedSize =
+        LZ4_compress_default((const char *)frameDataPtr, (char *)compressedDataPtr, (int)frameDataSize, compressBufferSize);
+    if (compressedSize <= 0)
+    {
+        Z_ERR("LZ4_compress_default failed:%d\n", compressedSize);
+        return;
+    }
+
+    cacheData.width  = frameToCache->width;
+    cacheData.height = frameToCache->height;
+    cacheData.format = (AVPixelFormat)frameToCache->format;
+    cacheData.ptsMs  = (uint32_t)frameToCache->pts;
+
+    cacheData.originalDataSize   = frameDataSize;
+    cacheData.compressedDataSize = compressedSize;
+    cacheData.compressedData     = std::move(compressBuffer);
+
     mDecodeFrameCache.emplace_back(std::move(cacheData));
+    auto end = std::chrono::high_resolution_clock::now();
+    Z_INFO("Add Frame Pts {} To Cache({} ms)\n", frameToCache->pts,
+           std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
 }
 
 int Mp4ParseData::saveFrameToFile(uint32_t trackIdx, uint32_t frameIdx)
@@ -771,6 +858,16 @@ int Mp4ParseData::saveFrameToFile(uint32_t trackIdx, uint32_t frameIdx)
         Z_ERR("No Cache With Pts {}\n", samples[frameIdx].ptsMs);
         return -1;
     }
+    MyAVFrame frame;
+
+    if (getCachedFrame(*cacheData, frame) < 0)
+    {
+        Z_ERR("Failed to get cached frame\n");
+        return -1;
+    }
+
+    uint32_t jpegSize = 0;
+    auto     jpegData = encodeFrameToJpeg(frame, jpegSize);
 
     string filePath = fs::u8path(curFilePath).stem().u8string() + string("_frame_") + std::to_string(frameIdx) + string(".jpg");
     filePath        = (fs::u8path(getAppConfigure().saveFramePath) / fs::u8path(filePath)).u8string();
@@ -781,7 +878,7 @@ int Mp4ParseData::saveFrameToFile(uint32_t trackIdx, uint32_t frameIdx)
         Z_ERR("Open File {} Fail\n", filePath);
         return -1;
     }
-    fwrite(cacheData->jpegData.get(), 1, cacheData->jpegSize, fp);
+    fwrite(jpegData.get(), 1, jpegSize, fp);
     fclose(fp);
 
     SET_APPLICATION_STATUS("Save Frame To %s", filePath.c_str());
