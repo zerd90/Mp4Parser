@@ -553,7 +553,7 @@ void Mp4ParseData::recreateDecoder()
             });
         if (ret < 0)
         {
-            ADD_LOG("init decoder type %d fail %s\n", codecType, ffmpeg_make_err_string(ret));
+            ADD_APPLICATION_LOG("init decoder type %d fail %s\n", codecType, ffmpeg_make_err_string(ret));
             return;
         }
     }
@@ -575,7 +575,7 @@ void Mp4ParseData::run()
             gUserApp->setStatus(err);
             while (!err.empty())
             {
-                ADD_LOG("%s\n", err.c_str());
+                ADD_APPLICATION_LOG("%s\n", err.c_str());
                 err = mParser->getErrorMessage();
             }
             return;

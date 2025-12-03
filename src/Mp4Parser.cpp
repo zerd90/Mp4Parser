@@ -6,6 +6,7 @@
 #include <filesystem>
 
 #include "logger.h"
+#include "timer.h"
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "ImGuiApplication.h"
@@ -34,7 +35,7 @@ namespace fs = std::filesystem;
     {                                                               \
         char impBuffer[1024];                                       \
         snprintf(impBuffer, sizeof(impBuffer), fmt, ##__VA_ARGS__); \
-        ADD_LOG("%s", impBuffer);                                   \
+        ADD_APPLICATION_LOG("%s", impBuffer);                       \
         string status = impBuffer;                                  \
         while (status.back() == '\n' || status.back() == '\r')      \
             status.pop_back();                                      \
@@ -152,13 +153,13 @@ void SaveBoxData(const string &filePath, void *boxInfo)
     FILE *fp       = fopen(filePath.c_str(), "wb");
     if (!fp)
     {
-        ADD_LOG("Open %s error: %s\n", filePath.c_str(), getSystemError().c_str());
+        ADD_APPLICATION_LOG("Open %s error: %s\n", filePath.c_str(), getSystemError().c_str());
         return;
     }
     FILE *srcFp = fopen(getMp4DataShare().getParser()->getFilePath().c_str(), "rb");
     if (!srcFp)
     {
-        ADD_LOG("Open %s error: %s\n", getMp4DataShare().curFilePath.c_str(), getSystemError().c_str());
+        ADD_APPLICATION_LOG("Open %s error: %s\n", getMp4DataShare().curFilePath.c_str(), getSystemError().c_str());
         fclose(fp);
         return;
     }
@@ -294,7 +295,7 @@ void Mp4ParserApp::ShowTracksTreeView()
             {
                 if (mCurrTrackSelect != (int)idx)
                 {
-                    mFocusChanged  = true;
+                    mFocusChanged    = true;
                     mCurrTrackSelect = (int)idx;
                 }
             }
@@ -394,7 +395,7 @@ int readDataFromFile(const string &filePath, uint8_t *buffer, size_t offset, siz
 
     if (readSize != size)
     {
-        ADD_LOG("Read %s error: %s\n", filePath.c_str(), getSystemError().c_str());
+        ADD_APPLICATION_LOG("Read %s error: %s\n", filePath.c_str(), getSystemError().c_str());
     }
 
     return 0;
@@ -1098,7 +1099,7 @@ void Mp4ParserApp::ShowInfoView()
                 }
                 while (!err.empty())
                 {
-                    ADD_LOG("%s\n", err.c_str());
+                    ADD_APPLICATION_LOG("%s\n", err.c_str());
                     err = mBoxBinaryViewer.getError();
                 }
             }
@@ -1173,8 +1174,14 @@ void Mp4ParserApp::presetInternal()
             switch (logLevel)
             {
                 case MP4_LOG_LEVEL_ERR:
+                {
+                    string status = tmpStr;
+                    while (status.back() == '\n' || status.back() == '\r')
+                        status.pop_back();
+                    gUserApp->setStatus(status);
                     tmpStr = gColorStrMap[ColorRed] + tmpStr + gColorStrMap[ColorNone];
                     break;
+                }
                 case MP4_LOG_LEVEL_WARN:
                     tmpStr = gColorStrMap[ColorYellow] + tmpStr + gColorStrMap[ColorNone];
                     break;
@@ -1203,19 +1210,15 @@ void Mp4ParserApp::initSettingsWindowInternal()
     addSettingWindowItemBool({"General"}, "Binary View", &getAppConfigure().showBoxBinaryData);
     addSettingWindowItemBool({"General"}, "Logarithmic Axis", &getAppConfigure().logarithmicAxis);
 
-    vector<AVHWDeviceType>         hwTypes     = getSupportHWDeviceType();
-    vector<std::pair<int, string>> hwTypeItems = {
-        {-1, "Off" },
-        {0,  "Auto"},
-    };
-    for (auto type : hwTypes)
-    {
-        Z_INFO("Support {}\n", type);
-        hwTypeItems.push_back({type, av_hwdevice_get_type_name(type)});
-    }
     vector<string> category = {"General"};
-    addSettingWindowItemCombo(category, "Hardware Decode", &getAppConfigure().hardwareDecode, hwTypeItems,
-                              []() { getMp4DataShare().recreateDecoder(); });
+    addSettingWindowItemCombo(
+        category, "Hardware Decode", &getAppConfigure().hardwareDecode,
+        [this](std::map<ComboTag, string> &items)
+        {
+            items.clear();
+            items.insert(mHWTypeItems.begin(), mHWTypeItems.end());
+        },
+        []() { getMp4DataShare().recreateDecoder(); });
     addSettingWindowItemPath(category, "Save Frame Path", &getAppConfigure().saveFramePath,
                              SettingPathFlags_SelectDir | SettingPathFlags_CreateWhenNotExist);
 
@@ -1237,6 +1240,30 @@ void Mp4ParserApp::initSettingsWindowInternal()
 
 bool Mp4ParserApp::renderUI()
 {
+    static bool firstTime = true;
+    if (firstTime)
+    {
+        firstTime = false;
+        addLog(combineString("Start GUI At ", gettime_ms(true), " ms\n"));
+    }
+
+    if (!mIsHWTypesChecked)
+    {
+        mHWTypesChecked = av_hwdevice_iterate_types(mHWTypesChecked);
+        if (AV_HWDEVICE_TYPE_NONE == mHWTypesChecked)
+        {
+            mIsHWTypesChecked = true;
+            ADD_APPLICATION_LOG("HW Codecs Check Done\n");
+        }
+        AVBufferRef *hwDeviceCtx = nullptr;
+        int          ret         = av_hwdevice_ctx_create(&hwDeviceCtx, mHWTypesChecked, nullptr, nullptr, 0);
+        if (0 == ret)
+        {
+            av_buffer_unref(&hwDeviceCtx);
+            mHWTypeItems.push_back({mHWTypesChecked, av_hwdevice_get_type_name(mHWTypesChecked)});
+        }
+    }
+
     if (!mToParseFile.empty())
     {
         startParseFile(mToParseFile);
@@ -1268,7 +1295,7 @@ bool Mp4ParserApp::renderUI()
 
                 getMp4DataShare().startParse(OPERATION_PARSE_FRAME_TYPE);
                 setStatus(combineString("Parse ", getProperFilePathForStatus(getMp4DataShare().curFilePath),
-                                        " Success, Extracting type of every frame..."));
+                                        " Done, Extracting type of every frame..."));
             }
             else
             {
@@ -1281,7 +1308,7 @@ bool Mp4ParserApp::renderUI()
         {
             if (getMp4DataShare().dataAvailable)
             {
-                setStatus(combineString("Parse " + getProperFilePathForStatus(getMp4DataShare().curFilePath)) + " Success");
+                setStatus(combineString("Parse " + getProperFilePathForStatus(getMp4DataShare().curFilePath)) + " Done");
             }
             setStatusProgressBar(false);
         }
@@ -1365,7 +1392,8 @@ void createBinaryViewer(BoxInfo *pBoxInfo, const string &key, const Mp4BoxData *
         auto title = std::to_string(pBoxInfo->box_index) + " " + pBoxInfo->box_type + key;
         if (pBoxInfo->binaryValueViewers.find(key) != pBoxInfo->binaryValueViewers.end())
         {
-            ADD_LOG("duplicate key: %s for box %s(%d_\n", key.c_str(), pBoxInfo->box_type.c_str(), pBoxInfo->box_index);
+            ADD_APPLICATION_LOG("duplicate key: %s for box %s(%d_\n", key.c_str(), pBoxInfo->box_type.c_str(),
+                                pBoxInfo->box_index);
             return;
         }
 

@@ -14,14 +14,6 @@
     (ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Borders \
      | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX)
 
-#define ADD_LOG(fmt, ...)                               \
-    do                                                  \
-    {                                                   \
-        char buf[1024] = {0};                           \
-        snprintf(buf, sizeof(buf), fmt, ##__VA_ARGS__); \
-        gUserApp->addLog(buf);                          \
-    } while (0)
-
 class Mp4ParserApp : public ImGui::ImGuiApplication
 {
 public:
@@ -111,6 +103,13 @@ private:
         size_t                     trackIdx;
         size_t                     itemIdx; //  sample or chunk index
     } mBinaryData;
+
+    std::vector<std::pair<int, std::string>> mHWTypeItems = {
+        {-1, "Off" },
+        {0,  "Auto"},
+    };
+    bool           mIsHWTypesChecked = false;
+    AVHWDeviceType mHWTypesChecked   = AV_HWDEVICE_TYPE_NONE;
 
     friend class Mp4ParserMainWindow;
 };
