@@ -47,7 +47,7 @@ Mp4ParseData &getMp4DataShare()
 
 int getCachedFrame(FrameCacheData &cacheData, MyAVFrame &frame)
 {
-    frame.getBuffer(cacheData.width, cacheData.height, cacheData.format);
+    frame.getBuffer(cacheData.width, cacheData.height, cacheData.format, cacheData.lineSize);
 
     auto decompressBuffer = std::make_unique<uint8_t[]>(cacheData.originalDataSize);
 
