@@ -665,6 +665,7 @@ void Mp4ParserApp::updateSamplesTable()
                     showFrameType = true;
 
                 sampleTable.addColumn("DTS(ms)").addColumn("DTS Delta(ms)");
+                sampleTable.addColumn("Sample Description Index");
                 if (showFrameType)
                     sampleTable.addColumn("Frame Type");
                 sampleTable.addColumn("KeyFrame");
@@ -698,10 +699,12 @@ void Mp4ParserApp::updateSamplesTable()
                                 return to_string(curItem.dtsMs);
                             case 5:
                                 return to_string(curItem.dtsDeltaMs);
+                            case 6:
+                                return to_string(curItem.sampleDescriptionIndex);
                         }
                         if (showFrameType)
                         {
-                            if (colIdx == 6)
+                            if (colIdx == 7)
                             {
                                 if (getAppConfigure().showRawFrameType)
                                 {
@@ -721,17 +724,17 @@ void Mp4ParserApp::updateSamplesTable()
                                     return mp4GetFrameTypeStr(curItem.frameType);
                                 }
                             }
-                            else if (colIdx == 7)
+                            else if (colIdx == 8)
                                 return curItem.isKeyFrame ? "True" : "False";
                         }
                         else
                         {
-                            if (colIdx == 6)
+                            if (colIdx == 7)
                                 return curItem.isKeyFrame ? "True" : "False";
                         }
                         return "";
                     },
-                    std::bind(sampleTableClickable, ref(getMp4DataShare().tracksInfo[i].mediaInfo->samplesInfo),
+                    std::bind(sampleTableClickable, std::ref(getMp4DataShare().tracksInfo[i].mediaInfo->samplesInfo),
                               std::placeholders::_1, std::placeholders::_2),
                     std::bind(&Mp4ParserApp::sampleTableClicked, this, i, std::placeholders::_1, std::placeholders::_2));
                 break;
@@ -826,6 +829,7 @@ void Mp4ParserApp::updateChunksTable()
         chunkTable.addColumn("Size");
         chunkTable.addColumn("Sample Start");
         chunkTable.addColumn("Sample Count");
+        chunkTable.addColumn("Sample Description Index");
         chunkTable.addColumn("Start PTS(ms)");
         chunkTable.addColumn("Delta(ms)");
         chunkTable.addColumn("Avg Bitrate(Kbps)");
@@ -855,10 +859,12 @@ void Mp4ParserApp::updateChunksTable()
                     case 4:
                         return to_string(cur_item.sampleCount);
                     case 5:
-                        return to_string(cur_item.startPtsMs);
+                        return to_string(cur_item.sampleDescriptionIndex);
                     case 6:
-                        return to_string(cur_item.durationMs);
+                        return to_string(cur_item.startPtsMs);
                     case 7:
+                        return to_string(cur_item.durationMs);
+                    case 8:
                         return to_string(cur_item.avgBitrateBps / 1024.f);
                     default:
                         return "";
