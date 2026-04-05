@@ -16,6 +16,7 @@
 
 #include "Mp4Parser.h"
 #include "AppConfigure.h"
+#include "resource.h"
 
 using std::ref;
 using std::shared_ptr;
@@ -1534,4 +1535,13 @@ void Mp4ParserApp::exitInternal()
 {
     getMp4DataShare().clear();
     mVideoStreamInfo.resetData();
+}
+
+void *Mp4ParserApp::getIconHandle()
+{
+#ifdef _WIN32
+    return (void *)LoadIcon(GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_ICON1));
+#else
+    return nullptr;
+#endif
 }

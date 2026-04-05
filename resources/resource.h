@@ -1,0 +1,6 @@
+#ifndef MP4PARSER_RESOURCE_H_
+#define MP4PARSER_RESOURCE_H_
+
+#define IDI_ICON1 101
+
+#endif

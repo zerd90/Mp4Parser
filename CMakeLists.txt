@@ -14,6 +14,7 @@ add_subdirectory(Mp4ParseLib Mp4ParseLib)
 set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
     ${CMAKE_SOURCE_DIR}/3rdlibrary/ffmpeg/include
     ${CMAKE_SOURCE_DIR}/3rdlibrary/lz4/include
+    ${CMAKE_SOURCE_DIR}/resources
 )
 
 set(LINK_DIRECTORIES ${LINK_DIRECTORIES}

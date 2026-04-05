@@ -27,6 +27,7 @@ public:
     virtual void presetInternal() override;
     virtual bool renderUI() override;
     void         exitInternal() override;
+    void        *getIconHandle() override;
 
 protected:
     void initSettingsWindowInternal() override;
