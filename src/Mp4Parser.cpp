@@ -652,6 +652,7 @@ void Mp4ParserApp::updateSamplesTable()
     for (size_t i = 0; i < mSampleDataTables.size(); i++)
     {
         auto &sampleTable = mSampleDataTables[i];
+        sampleTable.ScrollFreezeRows(1);
         sampleTable.setTableFlag(TABLE_FLAGS);
         sampleTable.clearColumns();
         sampleTable.addColumn("Idx").addColumn("Offset").addColumn("Size").addColumn("PTS(ms)");
@@ -823,6 +824,7 @@ void Mp4ParserApp::updateChunksTable()
     for (size_t i = 0; i < mChunkDataTables.size(); i++)
     {
         auto &chunkTable = mChunkDataTables[i];
+        chunkTable.ScrollFreezeRows(1);
         chunkTable.setTableFlag(TABLE_FLAGS);
         chunkTable.clearColumns();
         chunkTable.addColumn("Idx");
