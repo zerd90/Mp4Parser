@@ -16,7 +16,9 @@
 
 #include "Mp4Parser.h"
 #include "AppConfigure.h"
-#include "resource.h"
+#ifdef _WIN32
+    #include "resource.h"
+#endif
 
 using std::ref;
 using std::shared_ptr;
