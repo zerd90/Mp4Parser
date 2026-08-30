@@ -2,7 +2,7 @@
 #define _APP_CONFIGURE_H_
 
 #include <string>
-#include "imgui_image_render.h"
+#include "ImGuiImageRender.h"
 
 class AppConfigures
 {

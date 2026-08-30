@@ -7,6 +7,7 @@
 #include "AppConfigure.h"
 #include "timer.h"
 #include "ImGuiApplication.h"
+#include "ImGuiApiTypes.h"
 
 #include "logger.h"
 
