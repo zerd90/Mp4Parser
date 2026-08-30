@@ -4,11 +4,11 @@ cmake_minimum_required(VERSION 3.21)
 # 项目名称
 project(Mp4Parser)
 
-include(my_tools/common.cmake)
+include(submodules/my_tools/common.cmake)
 
 # set INCLUDE_DIRECTORIES in every subdirectorys
-add_subdirectory(my_tools my_tools)
-add_subdirectory(Mp4ParseLib Mp4ParseLib)
+add_subdirectory(submodules/my_tools my_tools)
+add_subdirectory(submodules/Mp4ParseLib Mp4ParseLib)
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
     set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
@@ -39,7 +39,7 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
     )
 endif()
 
-add_subdirectory(imgui_base imgui)
+add_subdirectory(submodules/imgui_base imgui)
 
 set(LINK_LIBRARIES ${LINK_LIBRARIES} avformat avcodec avutil swscale)
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
