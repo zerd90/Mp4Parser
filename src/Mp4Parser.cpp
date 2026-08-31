@@ -924,7 +924,6 @@ Mp4ParserApp::Mp4ParserApp() : mInfoWindow("Information")
     Log::set_log_level(LOG_LEVEL_INFO);
 
     enableStatusBar(true);
-    setStatus("Ready to go\n");
 
     addSetting(
         SettingValue::SettingBool, "ShowInHex", [](const void *val) { getAppConfigure().needShowInHex = *(bool *)val; },

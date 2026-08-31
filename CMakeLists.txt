@@ -22,6 +22,10 @@ if(CMAKE_SYSTEM_NAME MATCHES "Windows")
         target_link_options(${PROJECT_NAME} PRIVATE -mwindows)
     endif()
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    set(CMAKE_MACOSX_RPATH ON)
+    set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
+    set(CMAKE_INSTALL_RPATH "@loader_path")
+
     set(MACOS_APP_ICON "${PROJECT_SOURCE_DIR}/resources/AppIcon.icns")
     set_source_files_properties(${MACOS_APP_ICON} PROPERTIES
         MACOSX_PACKAGE_LOCATION "Resources"
