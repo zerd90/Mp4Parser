@@ -32,6 +32,7 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
     )
     add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${SRC_LIST} ${MACOS_APP_ICON})
     set_target_properties(${PROJECT_NAME} PROPERTIES
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.mp4parser.Mp4Parser"
         MACOSX_BUNDLE_ICON_FILE "AppIcon.icns"
     )
 else()
