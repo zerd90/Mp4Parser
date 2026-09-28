@@ -8,7 +8,7 @@
 #include "ImGuiBaseTypes.h"
 #include "logger.h"
 
-#include "Mp4Parser.h"
+#include "ImGuiApplication.h"
 #include "Mp4ParseData.h"
 #include "AppConfigure.h"
 
@@ -152,8 +152,7 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
                                 uint32_t epochValue)
 {
     std::lock_guard<std::recursive_mutex> lock(mDecoderMutex);
-    auto                                  decodeCancelled = [&]()
-    { return cancelEpoch != nullptr && cancelEpoch->load(std::memory_order_acquire) != epochValue; };
+    auto decodeCancelled = [&]() { return cancelEpoch != nullptr && cancelEpoch->load(std::memory_order_acquire) != epochValue; };
     if (decodeCancelled())
         return DecodeAborted;
 
@@ -177,7 +176,7 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
             getCachedFrame(cache, frame);
             auto end = std::chrono::high_resolution_clock::now();
             Z_DBG("Got Cache With Pts {}, Time Taken: {} ms\n", cache.ptsMs,
-                   std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+                  std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
             frame->pts = samples[frameIdx].ptsMs;
             transformFrameFormat(frame, acceptFormats);
             return 0;

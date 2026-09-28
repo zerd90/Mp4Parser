@@ -1,6 +1,7 @@
 #ifndef _VIDEO_STREAM_INFO_H_
 #define _VIDEO_STREAM_INFO_H_
 
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <map>
@@ -53,17 +54,17 @@ public:
     void setImageSampleType(ImGui::ImGuiImageSampleType sampleType);
 
 private:
-    void updateData();
-    bool drawHistogram(bool updateScroll);
-    void updateCurrFrameInfo();
-    void notePresentedFrame();
+    void  updateData();
+    bool  drawHistogram(bool updateScroll);
+    void  updateCurrFrameInfo();
+    void  notePresentedFrame();
     float actualFrameRate();
-    void submitDecodeRequest();
-    bool presentReadyFrame();
-    void showFrameInfo();
-    void showFrameDisplay();
-    bool showHistogramAndFrameInfo(bool updateScroll);
-    int  seekToFrame(uint32_t frameIdx, bool seekToIFrame = false);
+    void  submitDecodeRequest();
+    bool  presentReadyFrame();
+    void  showFrameInfo();
+    void  showFrameDisplay();
+    bool  showHistogramAndFrameInfo(bool updateScroll);
+    int   seekToFrame(uint32_t frameIdx, bool seekToIFrame = false);
 
     int saveFrameToFile();
 
@@ -139,6 +140,9 @@ private:
     ImGui::ImGuiButton mPauseButton      = ImGui::ImGuiButton("Pause##button");
 
     ImGui::ImGuiInputCombo mFrameRateCombo = ImGui::ImGuiInputCombo("Framerate");
+
+    ImGui::DisplayInfo mImageDisplayInfo;
+    uint64_t           mLastImageDisplayInfoChangeMs = UINT64_MAX;
 
     bool                 mIsPlaying = false;
     std::deque<uint64_t> mPresentedTimesMs;

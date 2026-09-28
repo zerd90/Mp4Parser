@@ -183,77 +183,80 @@ ImGui::ImGuiImageFormat transFormat(AVPixelFormat format)
 }
 namespace
 {
-constexpr uint32_t kDecodePrefetch = 8;
+    constexpr uint32_t kDecodePrefetch = 8;
 
-static uint64_t playIntervalUsFromFps(int fps)
-{
-    if (fps <= 0)
-        fps = 20;
-    return 1000000ull / (uint64_t)fps;
-}
-
-struct PresentedImage
-{
-    uint32_t                     trackIdx   = 0;
-    uint32_t                     playIdx    = 0;
-    int                          width      = 0;
-    int                          height     = 0;
-    ImGui::ImGuiImageFormat      format     = ImGui::ImGuiImageFormat_None;
-    ImGui::ImGuiImageColorRange  colorRange = ImGui::ImGuiImageColorRange_16_235;
-    int                          planeCount = 0;
-    int                          stride[4]  = {};
-    std::unique_ptr<uint8_t[]>   plane[4];
-};
-
-bool makePresentedImage(MyAVFrame &frame, uint32_t trackIdx, uint32_t playIdx, PresentedImage &out)
-{
-    MyAVFrame software;
-    AVFrame  *src = frame.get();
-    if (isHardwareFormat((AVPixelFormat)frame->format))
+    static uint64_t playIntervalUsFromFps(int fps)
     {
-        if (av_hwframe_transfer_data(software.get(), frame.get(), 0) < 0)
-            return false;
-        frame.copyPropsTo(software);
-        src = software.get();
+        if (fps <= 0)
+            fps = 20;
+        return 1000000ull / (uint64_t)fps;
     }
 
-    PresentedImage image;
-    image.trackIdx = trackIdx;
-    image.playIdx  = playIdx;
-    image.format   = transFormat((AVPixelFormat)src->format);
-    if (image.format == ImGui::ImGuiImageFormat_None)
-        return false;
-    if (AV_PIX_FMT_YUVJ444P == src->format || AV_PIX_FMT_YUVJ422P == src->format || AV_PIX_FMT_YUVJ411P == src->format
-        || AV_PIX_FMT_YUVJ420P == src->format || src->color_range == AVCOL_RANGE_JPEG)
-        image.colorRange = ImGui::ImGuiImageColorRange_0_255;
-    else
-        image.colorRange = ImGui::ImGuiImageColorRange_16_235;
-
-    image.width      = src->width;
-    image.height     = src->height;
-    image.planeCount = (int)getPlaneCount(image.format);
-    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get((AVPixelFormat)src->format);
-    if (image.planeCount <= 0 || desc == nullptr)
-        return false;
-
-    for (int i = 0; i < image.planeCount; i++)
+    struct PresentedImage
     {
-        if (src->data[i] == nullptr || src->linesize[i] <= 0)
+        uint32_t                    trackIdx   = 0;
+        uint32_t                    playIdx    = 0;
+        int                         width      = 0;
+        int                         height     = 0;
+        ImGui::ImGuiImageFormat     format     = ImGui::ImGuiImageFormat_None;
+        ImGui::ImGuiImageColorRange colorRange = ImGui::ImGuiImageColorRange_16_235;
+        int                         planeCount = 0;
+        int                         stride[4]  = {};
+        std::unique_ptr<uint8_t[]>  plane[4];
+    };
+
+    bool makePresentedImage(MyAVFrame &frame, uint32_t trackIdx, uint32_t playIdx, PresentedImage &out)
+    {
+        MyAVFrame software;
+        AVFrame  *src = frame.get();
+        if (isHardwareFormat((AVPixelFormat)frame->format))
+        {
+            if (av_hwframe_transfer_data(software.get(), frame.get(), 0) < 0)
+                return false;
+            frame.copyPropsTo(software);
+            src = software.get();
+        }
+
+        PresentedImage image;
+        image.trackIdx = trackIdx;
+        image.playIdx  = playIdx;
+        image.format   = transFormat((AVPixelFormat)src->format);
+        if (image.format == ImGui::ImGuiImageFormat_None)
             return false;
-        uint32_t planeHeight = i > 0 ? (uint32_t)AV_CEIL_RSHIFT(src->height, desc->log2_chroma_h) : (uint32_t)src->height;
-        uint32_t planeSize   = (uint32_t)src->linesize[i] * planeHeight;
-        image.plane[i]       = std::make_unique<uint8_t[]>(planeSize);
-        memcpy(image.plane[i].get(), src->data[i], planeSize);
-        image.stride[i] = src->linesize[i];
+        if (AV_PIX_FMT_YUVJ444P == src->format || AV_PIX_FMT_YUVJ422P == src->format || AV_PIX_FMT_YUVJ411P == src->format
+            || AV_PIX_FMT_YUVJ420P == src->format || src->color_range == AVCOL_RANGE_JPEG)
+            image.colorRange = ImGui::ImGuiImageColorRange_0_255;
+        else
+            image.colorRange = ImGui::ImGuiImageColorRange_16_235;
+
+        image.width                    = src->width;
+        image.height                   = src->height;
+        image.planeCount               = (int)getPlaneCount(image.format);
+        const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get((AVPixelFormat)src->format);
+        if (image.planeCount <= 0 || desc == nullptr)
+            return false;
+
+        for (int i = 0; i < image.planeCount; i++)
+        {
+            if (src->data[i] == nullptr || src->linesize[i] <= 0)
+                return false;
+            uint32_t planeHeight = i > 0 ? (uint32_t)AV_CEIL_RSHIFT(src->height, desc->log2_chroma_h) : (uint32_t)src->height;
+            uint32_t planeSize   = (uint32_t)src->linesize[i] * planeHeight;
+            image.plane[i]       = std::make_unique<uint8_t[]>(planeSize);
+            memcpy(image.plane[i].get(), src->data[i], planeSize);
+            image.stride[i] = src->linesize[i];
+        }
+        out = std::move(image);
+        return true;
     }
-    out = std::move(image);
-    return true;
-}
 } // namespace
 
 struct VideoStreamInfo::VideoDecodeWorker
 {
-    VideoDecodeWorker() { mThread = std::thread([this]() { loop(); }); }
+    VideoDecodeWorker()
+    {
+        mThread = std::thread([this]() { loop(); });
+    }
 
     ~VideoDecodeWorker()
     {
@@ -332,8 +335,7 @@ struct VideoStreamInfo::VideoDecodeWorker
         }
         else
         {
-            mReady.erase(std::remove_if(mReady.begin(), mReady.end(),
-                                        [&](const PresentedImage &image)
+            mReady.erase(std::remove_if(mReady.begin(), mReady.end(), [&](const PresentedImage &image)
                                         { return image.trackIdx == track && image.playIdx < newTarget; }),
                          mReady.end());
         }
@@ -371,8 +373,8 @@ struct VideoStreamInfo::VideoDecodeWorker
 private:
     std::deque<PresentedImage>::iterator findReady(uint32_t track, uint32_t playIdx)
     {
-        return std::find_if(mReady.begin(), mReady.end(), [&](const PresentedImage &image)
-                            { return image.trackIdx == track && image.playIdx == playIdx; });
+        return std::find_if(mReady.begin(), mReady.end(),
+                            [&](const PresentedImage &image) { return image.trackIdx == track && image.playIdx == playIdx; });
     }
 
     bool hasJob(uint32_t &track, uint32_t &playIdx, uint32_t &epoch)
@@ -449,17 +451,17 @@ private:
         }
     }
 
-    std::thread                  mThread;
-    std::mutex                   mMu;
-    std::condition_variable      mCv;
-    std::atomic<uint32_t>        mEpoch{1};
-    bool                         mStop   = false;
-    bool                         mPaused = true;
-    uint32_t                     mTrack  = 0;
-    uint32_t                     mAnchor = 0;
-    std::vector<uint32_t>        mWanted;
-    std::vector<uint32_t>        mFailed;
-    std::deque<PresentedImage>   mReady;
+    std::thread                mThread;
+    std::mutex                 mMu;
+    std::condition_variable    mCv;
+    std::atomic<uint32_t>      mEpoch{1};
+    bool                       mStop   = false;
+    bool                       mPaused = true;
+    uint32_t                   mTrack  = 0;
+    uint32_t                   mAnchor = 0;
+    std::vector<uint32_t>      mWanted;
+    std::vector<uint32_t>      mFailed;
+    std::deque<PresentedImage> mReady;
 };
 
 static uint32_t getNextIFrame(const std::vector<uint32_t> &iFrameList, uint32_t curFrame);
@@ -561,19 +563,19 @@ VideoStreamInfo::VideoStreamInfo()
     mPlayButton.setToolTip("Play");
     mPauseButton.setToolTip("Pause");
 
+    mImageDisplay.setScaleLimit(1.f, 50.f);
     mImageDisplay.open();
-    mImageDisplay.addChildFlag(ImGuiChildFlags_Borders);
+    mImageDisplay.removeChildFlag(ImGuiChildFlags_Borders);
     mFrameDisplay.setHasCloseButton(false);
     mFrameDisplay.setSize({640, 360}, ImGuiCond_FirstUseEver);
     mFrameDisplay.setContent([this]() { showFrameDisplay(); });
     mFrameDisplay.addChildFlag(ImGuiChildFlags_Borders);
-    mImageDisplay.removeChildFlag(ImGuiChildFlags_Borders);
 
     mFrameRateCombo.setLabelPosition(true);
     mFrameRateCombo.setGetComboItemsCallback(fillFrameRateComboItems);
     mFrameRateCombo.addComboFlag(ImGuiComboFlags_WidthFitPreview);
     {
-        float displayHz = ImGui::getDisplayRefreshRate();
+        float displayHz                  = ImGui::getDisplayRefreshRate();
         getAppConfigure().playFrameRate  = clampFrameRateToDisplay(getAppConfigure().playFrameRate, displayHz);
         getAppConfigure().playIFrameRate = clampFrameRateToDisplay(getAppConfigure().playIFrameRate, displayHz);
         mPlayIntervalUs                  = playIntervalUsFromFps(getAppConfigure().playFrameRate);
@@ -945,9 +947,9 @@ bool VideoStreamInfo::showHistogramAndFrameInfo(bool updateScroll)
 
     ImGui::SetCursorScreenPos(mHistogramPos);
     {
-        float displayHz                     = ImGui::getDisplayRefreshRate();
-        getAppConfigure().playFrameRate     = clampFrameRateToDisplay(getAppConfigure().playFrameRate, displayHz);
-        getAppConfigure().playIFrameRate    = clampFrameRateToDisplay(getAppConfigure().playIFrameRate, displayHz);
+        float displayHz                  = ImGui::getDisplayRefreshRate();
+        getAppConfigure().playFrameRate  = clampFrameRateToDisplay(getAppConfigure().playFrameRate, displayHz);
+        getAppConfigure().playIFrameRate = clampFrameRateToDisplay(getAppConfigure().playIFrameRate, displayHz);
     }
 
     bool selectFrame = false;
@@ -1104,13 +1106,13 @@ bool VideoStreamInfo::show()
     bool selectFrame   = false;
     bool frameShown    = mPresentedTrack == mCurSelectTrack && mPresentedPlayIdx == mCurSelectFrame[mCurSelectTrack];
 
-    auto &ptsList = getMp4DataShare().tracksFramePtsList[mCurSelectTrack];
-    auto &iFrames = getMp4DataShare().tracksIFrameList[mCurSelectTrack];
+    auto    &ptsList    = getMp4DataShare().tracksFramePtsList[mCurSelectTrack];
+    auto    &iFrames    = getMp4DataShare().tracksIFrameList[mCurSelectTrack];
     uint32_t frameCount = (uint32_t)ptsList.size();
 
     if (mIsPlaying && mDecodeWorker)
     {
-        int fps = getAppConfigure().onlyPlayIFrame ? getAppConfigure().playIFrameRate : getAppConfigure().playFrameRate;
+        int fps         = getAppConfigure().onlyPlayIFrame ? getAppConfigure().playIFrameRate : getAppConfigure().playFrameRate;
         mPlayIntervalUs = playIntervalUsFromFps(fps);
 
         uint64_t nowUs = gettime_us();
@@ -1344,6 +1346,40 @@ void VideoStreamInfo::showFrameDisplay()
     mImageDisplay.setSize(ImageRegion);
     mImageDisplay.show();
 
+    {
+        auto displayInfo = mImageDisplay.getDisplayInfo();
+        if (displayInfo.scale != mImageDisplayInfo.scale)
+        {
+            mLastImageDisplayInfoChangeMs = gettime_ms();
+        }
+        mImageDisplayInfo = displayInfo;
+    }
+
+    static const uint64_t sScaleInfoShowTimeMs      = 1000;
+    static const uint64_t sScaleInfoStartFadeTimeMs = 500;
+
+    uint64_t nowMs = gettime_ms();
+    if (nowMs - mLastImageDisplayInfoChangeMs < sScaleInfoShowTimeMs)
+    {
+        auto   timeElapsed = nowMs - mLastImageDisplayInfoChangeMs;
+        ImRect imageDisplayRect =
+            ImRect(mImageDisplay.getPos().x, mImageDisplay.getPos().y, mImageDisplay.getPos().x + mImageDisplay.getSize().x,
+                   mImageDisplay.getPos().y + mImageDisplay.getSize().y);
+        char text[16];
+        snprintf(text, sizeof(text), "%.1fx", mImageDisplayInfo.scale);
+        auto   textSize = ImGui::CalcTextSize(text);
+        ImVec2 showpos =
+            imageDisplayRect.Min
+            + ImVec2(imageDisplayRect.GetWidth() - textSize.x - GetStyle().WindowPadding.x, GetStyle().WindowPadding.y);
+        ImColor color = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+        if (timeElapsed > sScaleInfoStartFadeTimeMs)
+        {
+            color.Value.w =
+                1.f - (float)(timeElapsed - sScaleInfoStartFadeTimeMs) / (sScaleInfoShowTimeMs - sScaleInfoStartFadeTimeMs);
+        }
+        ImGui::GetForegroundDrawList()->AddText(showpos, color, text);
+    }
+
     ImVec2 controlPanelStart = ImGui::GetCursorScreenPos();
     mPlayProgressBar.show();
     if (mIsPlaying)
@@ -1358,8 +1394,8 @@ void VideoStreamInfo::showFrameDisplay()
         mPlayButton.show();
         if (mPlayButton.isClicked())
         {
-            mIsPlaying       = true;
-            mLastPlayTimeUs  = gettime_us();
+            mIsPlaying      = true;
+            mLastPlayTimeUs = gettime_us();
         }
     }
 
