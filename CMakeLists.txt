@@ -9,34 +9,24 @@ add_subdirectory(submodules/Mp4ParseLib Mp4ParseLib)
 add_subdirectory(submodules/imgui_base imgui)
 
 aux_source_directory(src SRC_LIST)
-
+imgui_add_executable(${PROJECT_NAME} ${SRC_LIST})
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
     configure_file(
         "${PROJECT_SOURCE_DIR}/resources/App.rc.in"
         "${CMAKE_CURRENT_BINARY_DIR}/App.rc"
         @ONLY
     )
-    add_executable(${PROJECT_NAME} WIN32 ${SRC_LIST} ${CMAKE_CURRENT_BINARY_DIR}/App.rc)
-
-    if(CMAKE_COMPILER_IS_GNUCXX)
-        target_link_options(${PROJECT_NAME} PRIVATE -mwindows)
-    endif()
+    target_sources(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/App.rc)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
-    set(CMAKE_MACOSX_RPATH ON)
-    set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
-    set(CMAKE_INSTALL_RPATH "@loader_path")
-
     set(MACOS_APP_ICON "${PROJECT_SOURCE_DIR}/resources/AppIcon.icns")
     set_source_files_properties(${MACOS_APP_ICON} PROPERTIES
         MACOSX_PACKAGE_LOCATION "Resources"
     )
-    add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${SRC_LIST} ${MACOS_APP_ICON})
+    target_sources(${PROJECT_NAME} PRIVATE ${MACOS_APP_ICON})
     set_target_properties(${PROJECT_NAME} PROPERTIES
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.mp4parser.Mp4Parser"
         MACOSX_BUNDLE_ICON_FILE "AppIcon.icns"
     )
-else()
-    add_executable(${PROJECT_NAME} ${SRC_LIST})
 endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")

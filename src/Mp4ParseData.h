@@ -2,7 +2,9 @@
 #ifndef _DATA_SHARE_H_
 #define _DATA_SHARE_H_
 
+#include <atomic>
 #include <map>
+#include <mutex>
 
 #include "ImGuiTools.h"
 #include "Myffmpeg.h"
@@ -82,7 +84,11 @@ public:
     void                       clear();
     void                       clearData();
 
-    int decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats);
+    static constexpr int DecodeAborted = 1;
+
+    int decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats,
+                      const std::atomic<uint32_t> *cancelEpoch = nullptr, uint32_t epochValue = 0);
+    bool sampleIndexForPlayIndex(uint32_t trackIdx, uint32_t playIdx, uint32_t &sampleIdx);
     enum SeekResult
     {
         SeekToKeyFrame        = 0,
@@ -126,6 +132,7 @@ private:
     PARSE_OPERATION_E          mOperation = OPERATION_PARSE_FILE;
     std::shared_ptr<Mp4Parser> mParser    = createMp4Parser();
 
+    std::recursive_mutex                           mDecoderMutex;
     std::map<int /* trackIdx */, MyAVCodecContext> mVideoDecoders;
     MySwsContext                                   mFmtTransition;
 

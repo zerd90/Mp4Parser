@@ -49,16 +49,22 @@ int getCachedFrame(FrameCacheData &cacheData, MyAVFrame &frame)
 {
     frame.getBuffer(cacheData.width, cacheData.height, cacheData.format, cacheData.lineSize);
 
-    auto decompressBuffer = std::make_unique<uint8_t[]>(cacheData.originalDataSize);
-
+    auto     decompressBuffer    = std::make_unique<uint8_t[]>(cacheData.originalDataSize);
     uint8_t *compressedDataPtr   = cacheData.compressedData.get();
     uint8_t *decompressedDataPtr = decompressBuffer.get();
-    int      ret = LZ4_decompress_safe((char *)compressedDataPtr, (char *)decompressedDataPtr, cacheData.compressedDataSize,
-                                       cacheData.originalDataSize);
-    if (ret < 0)
+    if (cacheData.compressedDataSize == cacheData.originalDataSize)
     {
-        Z_ERR("LZ4 decompression failed with error code {}\n", ret);
-        return -1;
+        decompressedDataPtr = compressedDataPtr;
+    }
+    else
+    {
+        int ret = LZ4_decompress_safe((char *)compressedDataPtr, (char *)decompressedDataPtr, cacheData.compressedDataSize,
+                                      cacheData.originalDataSize);
+        if (ret < 0)
+        {
+            Z_ERR("LZ4 decompression failed with error code {}\n", ret);
+            return -1;
+        }
     }
 
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(cacheData.format);
@@ -84,7 +90,8 @@ int Mp4ParseData::startParse(PARSE_OPERATION_E op)
 
 Mp4ParseData::SeekResult Mp4ParseData::seekToFrame(uint32_t trackIdx, uint32_t frameIdx, uint32_t &keyFrameIdx)
 {
-    auto trackDecoder = mVideoDecoders.find(trackIdx);
+    std::lock_guard<std::recursive_mutex> lock(mDecoderMutex);
+    auto                                  trackDecoder = mVideoDecoders.find(trackIdx);
     if (trackDecoder == mVideoDecoders.end())
         return SeekFail;
 
@@ -118,17 +125,6 @@ Mp4ParseData::SeekResult Mp4ParseData::seekToFrame(uint32_t trackIdx, uint32_t f
     {
         needSeek = true;
     }
-    else
-    {
-        for (int64_t i = mTracksDecodeStat[trackIdx].lastDecodedFrameIdx + 1; i <= frameIdx; i++)
-        {
-            if (samples[i].isKeyFrame)
-            {
-                needSeek = true;
-                break;
-            }
-        }
-    }
 
     keyFrameIdx = seekFrameIdx;
     if (needSeek)
@@ -141,9 +137,25 @@ Mp4ParseData::SeekResult Mp4ParseData::seekToFrame(uint32_t trackIdx, uint32_t f
     return ContinueDecodeToFrame;
 }
 
-int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame &frame,
-                                const std::vector<AVPixelFormat> &acceptFormats)
+bool Mp4ParseData::sampleIndexForPlayIndex(uint32_t trackIdx, uint32_t playIdx, uint32_t &sampleIdx)
 {
+    std::lock_guard<std::recursive_mutex> lock(mDecoderMutex);
+    auto                                  ptsList = tracksFramePtsList.find((int)trackIdx);
+    if (ptsList == tracksFramePtsList.end() || playIdx >= ptsList->second.size())
+        return false;
+    sampleIdx = ptsList->second[playIdx];
+    return true;
+}
+
+int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame &frame,
+                                const std::vector<AVPixelFormat> &acceptFormats, const std::atomic<uint32_t> *cancelEpoch,
+                                uint32_t epochValue)
+{
+    std::lock_guard<std::recursive_mutex> lock(mDecoderMutex);
+    auto                                  decodeCancelled = [&]()
+    { return cancelEpoch != nullptr && cancelEpoch->load(std::memory_order_acquire) != epochValue; };
+    if (decodeCancelled())
+        return DecodeAborted;
 
     auto trackDecoder = mVideoDecoders.find(trackIdx);
     if (trackDecoder == mVideoDecoders.end())
@@ -164,7 +176,7 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
             auto start = std::chrono::high_resolution_clock::now();
             getCachedFrame(cache, frame);
             auto end = std::chrono::high_resolution_clock::now();
-            Z_INFO("Got Cache With Pts {}, Time Taken: {} ms\n", cache.ptsMs,
+            Z_DBG("Got Cache With Pts {}, Time Taken: {} ms\n", cache.ptsMs,
                    std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
             frame->pts = samples[frameIdx].ptsMs;
             transformFrameFormat(frame, acceptFormats);
@@ -183,18 +195,8 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
     if (mTracksDecodeStat[trackIdx].lastDecodedFrameIdx < 0
         || samples[mTracksDecodeStat[trackIdx].lastDecodedFrameIdx].ptsMs >= samples[frameIdx].ptsMs)
     {
+        // First frame, or target is not after the last decoded PTS — restart from its keyframe.
         needSeek = true;
-    }
-    else
-    {
-        for (int64_t i = mTracksDecodeStat[trackIdx].lastDecodedFrameIdx + 1; i <= frameIdx; i++)
-        {
-            if (samples[i].isKeyFrame)
-            {
-                needSeek = true;
-                break;
-            }
-        }
     }
 
     if (needSeek)
@@ -205,15 +207,17 @@ int Mp4ParseData::decodeFrameAt(uint32_t trackIdx, uint32_t frameIdx, MyAVFrame 
     }
     while (1)
     {
+        if (decodeCancelled())
+            return DecodeAborted;
+
         if (decodeOneFrame(trackIdx, frame) < 0)
         {
             return -1;
         }
 
-        addFrameToCache(frame);
-
         if (mTracksDecodeStat[trackIdx].lastDecodedFrameIdx >= frameIdx)
         {
+            addFrameToCache(frame);
             break;
         }
     }
@@ -259,7 +263,7 @@ int Mp4ParseData::sendPacketToDecoder(uint32_t trackIdx, uint32_t frameIdx)
     }
     mTracksDecodeStat[trackIdx].lastExtractFrameIdx = frameIdx;
 
-    Z_INFO("send packet pts {}\n", packet->pts);
+    Z_DBG("send packet pts {}\n", packet->pts);
 
     return 0;
 }
@@ -285,7 +289,7 @@ int Mp4ParseData::decodeOneFrame(uint32_t trackIdx, MyAVFrame &frame)
         ret = decoder.receiveFrame(frame);
         if (ret == 0)
         {
-            Z_INFO("get frame pts {}\n", frame->pts);
+            Z_DBG("get frame pts {}\n", frame->pts);
             break;
         }
         else if (ret < 0)
@@ -317,7 +321,7 @@ int Mp4ParseData::decodeOneFrame(uint32_t trackIdx, MyAVFrame &frame)
     }
 
     trackDecodeInfo.lastDecodedFrameIdx = frm->sampleIdx;
-    Z_INFO("frame sampleIdx {}\n", trackDecodeInfo.lastDecodedFrameIdx);
+    Z_DBG("frame sampleIdx {}\n", trackDecodeInfo.lastDecodedFrameIdx);
 
     return 0;
 }
@@ -331,9 +335,9 @@ bool exists(const std::vector<AVPixelFormat> &acceptFormats, AVPixelFormat forma
 
 int Mp4ParseData::transformFrameFormat(MyAVFrame &frame, const std::vector<AVPixelFormat> &acceptFormats)
 {
-    Z_INFO("frame format {}\n", frame->format);
-    Z_INFO("frame pict_type {}\n", frame->pict_type);
-    Z_INFO("frame pts {}\n", frame->pts);
+    Z_DBG("frame format {}\n", frame->format);
+    Z_DBG("frame pict_type {}\n", frame->pict_type);
+    Z_DBG("frame pts {}\n", frame->pts);
 
     int ret = 0;
 
@@ -351,7 +355,7 @@ int Mp4ParseData::transformFrameFormat(MyAVFrame &frame, const std::vector<AVPix
             Z_ERR("av_hwframe_transfer_data fail: {}\n", ffmpeg_make_err_string(ret));
             return -1;
         }
-        Z_INFO("trans format {}\n", trans_frame->format);
+        Z_DBG("trans format {}\n", trans_frame->format);
         frame.copyPropsTo(trans_frame);
         frame = trans_frame;
     }
@@ -386,13 +390,14 @@ int Mp4ParseData::transformFrameFormat(MyAVFrame &frame, const std::vector<AVPix
 
     frame.copyPropsTo(transFrame);
     frame = transFrame;
-    Z_INFO("trans format {}\n", frame->format);
+    Z_DBG("trans format {}\n", frame->format);
 
     return 0;
 }
 
 void Mp4ParseData::clearData()
 {
+    std::lock_guard<std::recursive_mutex> lock(mDecoderMutex);
     tracksInfo.clear();
     mVideoDecoders.clear();
     mFmtTransition.clear();
@@ -408,6 +413,7 @@ void Mp4ParseData::clearData()
 
 void Mp4ParseData::updateData()
 {
+    std::lock_guard<std::recursive_mutex> lock(mDecoderMutex);
     if (!dataAvailable)
         return;
 
@@ -492,6 +498,7 @@ void Mp4ParseData::updateData()
 
 void Mp4ParseData::recreateDecoder()
 {
+    std::lock_guard<std::recursive_mutex> lock(mDecoderMutex);
     mVideoDecoders.clear();
     for (auto &trackIdx : videoTracksIdx)
     {
@@ -659,6 +666,7 @@ void Mp4ParseData::clear()
     if (isRunning())
         stop();
 
+    std::lock_guard<std::recursive_mutex> lock(mDecoderMutex);
     mParser->clear();
 
     clearData();
@@ -807,37 +815,27 @@ void Mp4ParseData::addFrameToCache(MyAVFrame &frame)
         memcpy(frameDataPtr + offset, frameToCache->data[i], planeDataSize[i]);
         offset += planeDataSize[i];
     }
-    int  compressBufferSize = LZ4_compressBound((int)frameDataSize);
-    auto compressBuffer     = std::make_unique<uint8_t[]>(compressBufferSize);
-
-    uint8_t *compressedDataPtr = compressBuffer.get();
-
-    int compressedSize =
-        LZ4_compress_default((const char *)frameDataPtr, (char *)compressedDataPtr, (int)frameDataSize, compressBufferSize);
-    if (compressedSize <= 0)
-    {
-        Z_ERR("LZ4_compress_default failed:%d\n", compressedSize);
-        return;
-    }
-
     cacheData.width  = frameToCache->width;
     cacheData.height = frameToCache->height;
     cacheData.format = (AVPixelFormat)frameToCache->format;
     cacheData.ptsMs  = (uint32_t)frameToCache->pts;
 
     cacheData.originalDataSize   = frameDataSize;
-    cacheData.compressedDataSize = compressedSize;
-    cacheData.compressedData     = std::move(compressBuffer);
+    cacheData.compressedDataSize = frameDataSize;
+    cacheData.compressedData     = std::move(frameDataBuffer);
 
+    while (mDecodeFrameCache.size() >= 16)
+        mDecodeFrameCache.erase(mDecodeFrameCache.begin());
     mDecodeFrameCache.emplace_back(std::move(cacheData));
     auto end = std::chrono::high_resolution_clock::now();
-    Z_INFO("Add Frame Pts {} To Cache({} ms)\n", frameToCache->pts,
-           std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+    Z_DBG("Add Frame Pts {} To Cache({} ms)\n", frameToCache->pts,
+          std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
 }
 
 int Mp4ParseData::saveFrameToFile(uint32_t trackIdx, uint32_t frameIdx)
 {
-    auto &samples = tracksInfo[trackIdx].mediaInfo->samplesInfo;
+    std::lock_guard<std::recursive_mutex> lock(mDecoderMutex);
+    auto                                 &samples = tracksInfo[trackIdx].mediaInfo->samplesInfo;
     if (frameIdx >= samples.size())
         return -1;
 

@@ -8,13 +8,62 @@
 #include "timer.h"
 #include "ImGuiApplication.h"
 #include "ImGuiApiTypes.h"
+#include "ImGuiCommonTools.h"
+#include "ImGuiCommonTools.h"
 
 #include "logger.h"
+
+#include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <map>
+#include <mutex>
+#include <thread>
+#include <vector>
+
+extern "C"
+{
+#include <libavutil/pixdesc.h>
+}
 
 using std::string;
 using namespace ImGui;
 
-static int availableFrameRate[] = {1, 5, 10, 15, 20, 24, 30, 60};
+static int availableFrameRate[] = {1, 5, 10, 15, 20, 24, 30, 60, 90, 120};
+
+static bool isFrameRateAllowed(int rate, float displayHz)
+{
+    // Allow a little slack so 59.94 Hz displays still accept the 60 option.
+    return (float)rate <= displayHz + 0.5f;
+}
+
+static int clampFrameRateToDisplay(int rate, float displayHz)
+{
+    int best = availableFrameRate[0];
+    for (int candidate : availableFrameRate)
+    {
+        if (!isFrameRateAllowed(candidate, displayHz))
+            break;
+        best = candidate;
+        if (candidate == rate)
+            return rate;
+    }
+    return best;
+}
+
+static void fillFrameRateComboItems(std::map<ImGui::ComboTag, std::string> &items)
+{
+    items.clear();
+    const float displayHz = ImGui::getDisplayRefreshRate();
+    for (int rate : availableFrameRate)
+    {
+        if (!isFrameRateAllowed(rate, displayHz))
+            continue;
+        items[rate] = std::to_string(rate);
+    }
+    if (items.empty())
+        items[60] = "60";
+}
 
 PlayProgressBar::PlayProgressBar() {}
 PlayProgressBar::~PlayProgressBar() {};
@@ -132,46 +181,353 @@ ImGui::ImGuiImageFormat transFormat(AVPixelFormat format)
 #endif
     }
 }
+namespace
+{
+constexpr uint32_t kDecodePrefetch = 8;
+
+static uint64_t playIntervalUsFromFps(int fps)
+{
+    if (fps <= 0)
+        fps = 20;
+    return 1000000ull / (uint64_t)fps;
+}
+
+struct PresentedImage
+{
+    uint32_t                     trackIdx   = 0;
+    uint32_t                     playIdx    = 0;
+    int                          width      = 0;
+    int                          height     = 0;
+    ImGui::ImGuiImageFormat      format     = ImGui::ImGuiImageFormat_None;
+    ImGui::ImGuiImageColorRange  colorRange = ImGui::ImGuiImageColorRange_16_235;
+    int                          planeCount = 0;
+    int                          stride[4]  = {};
+    std::unique_ptr<uint8_t[]>   plane[4];
+};
+
+bool makePresentedImage(MyAVFrame &frame, uint32_t trackIdx, uint32_t playIdx, PresentedImage &out)
+{
+    MyAVFrame software;
+    AVFrame  *src = frame.get();
+    if (isHardwareFormat((AVPixelFormat)frame->format))
+    {
+        if (av_hwframe_transfer_data(software.get(), frame.get(), 0) < 0)
+            return false;
+        frame.copyPropsTo(software);
+        src = software.get();
+    }
+
+    PresentedImage image;
+    image.trackIdx = trackIdx;
+    image.playIdx  = playIdx;
+    image.format   = transFormat((AVPixelFormat)src->format);
+    if (image.format == ImGui::ImGuiImageFormat_None)
+        return false;
+    if (AV_PIX_FMT_YUVJ444P == src->format || AV_PIX_FMT_YUVJ422P == src->format || AV_PIX_FMT_YUVJ411P == src->format
+        || AV_PIX_FMT_YUVJ420P == src->format || src->color_range == AVCOL_RANGE_JPEG)
+        image.colorRange = ImGui::ImGuiImageColorRange_0_255;
+    else
+        image.colorRange = ImGui::ImGuiImageColorRange_16_235;
+
+    image.width      = src->width;
+    image.height     = src->height;
+    image.planeCount = (int)getPlaneCount(image.format);
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get((AVPixelFormat)src->format);
+    if (image.planeCount <= 0 || desc == nullptr)
+        return false;
+
+    for (int i = 0; i < image.planeCount; i++)
+    {
+        if (src->data[i] == nullptr || src->linesize[i] <= 0)
+            return false;
+        uint32_t planeHeight = i > 0 ? (uint32_t)AV_CEIL_RSHIFT(src->height, desc->log2_chroma_h) : (uint32_t)src->height;
+        uint32_t planeSize   = (uint32_t)src->linesize[i] * planeHeight;
+        image.plane[i]       = std::make_unique<uint8_t[]>(planeSize);
+        memcpy(image.plane[i].get(), src->data[i], planeSize);
+        image.stride[i] = src->linesize[i];
+    }
+    out = std::move(image);
+    return true;
+}
+} // namespace
+
+struct VideoStreamInfo::VideoDecodeWorker
+{
+    VideoDecodeWorker() { mThread = std::thread([this]() { loop(); }); }
+
+    ~VideoDecodeWorker()
+    {
+        {
+            std::lock_guard<std::mutex> lock(mMu);
+            mStop   = true;
+            mPaused = true;
+            mEpoch.fetch_add(1, std::memory_order_acq_rel);
+            mWanted.clear();
+        }
+        mCv.notify_one();
+        if (mThread.joinable())
+            mThread.join();
+    }
+
+    void cancel()
+    {
+        std::lock_guard<std::mutex> lock(mMu);
+        mPaused = true;
+        mEpoch.fetch_add(1, std::memory_order_acq_rel);
+        mWanted.clear();
+        mFailed.clear();
+        mReady.clear();
+        mCv.notify_one();
+    }
+
+    void setRequest(uint32_t track, const std::vector<uint32_t> &playIndices)
+    {
+        std::lock_guard<std::mutex> lock(mMu);
+        mPaused = false;
+        if (playIndices.empty())
+        {
+            // Keep already-decoded frames; only stop asking for new work.
+            mWanted.clear();
+            return;
+        }
+
+        uint32_t newTarget = playIndices.front();
+        bool     related   = track == mTrack;
+        if (related)
+        {
+            auto nearIndex = [](uint32_t a, uint32_t b)
+            {
+                uint32_t dist = a > b ? a - b : b - a;
+                return dist <= 16;
+            };
+            related = nearIndex(mAnchor, newTarget);
+            if (!related)
+            {
+                for (uint32_t idx : mWanted)
+                {
+                    if (nearIndex(idx, newTarget))
+                    {
+                        related = true;
+                        break;
+                    }
+                }
+            }
+            if (!related)
+            {
+                for (const auto &image : mReady)
+                {
+                    if (image.trackIdx == track && nearIndex(image.playIdx, newTarget))
+                    {
+                        related = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!related)
+        {
+            mEpoch.fetch_add(1, std::memory_order_acq_rel);
+            mFailed.clear();
+            mReady.clear();
+        }
+        else
+        {
+            mReady.erase(std::remove_if(mReady.begin(), mReady.end(),
+                                        [&](const PresentedImage &image)
+                                        { return image.trackIdx == track && image.playIdx < newTarget; }),
+                         mReady.end());
+        }
+        mTrack  = track;
+        mAnchor = newTarget;
+        mWanted = playIndices;
+        mCv.notify_one();
+    }
+
+    bool hasFrame(uint32_t track, uint32_t playIdx)
+    {
+        std::lock_guard<std::mutex> lock(mMu);
+        return findReady(track, playIdx) != mReady.end();
+    }
+
+    bool isFailed(uint32_t track, uint32_t playIdx)
+    {
+        std::lock_guard<std::mutex> lock(mMu);
+        if (track != mTrack)
+            return false;
+        return std::find(mFailed.begin(), mFailed.end(), playIdx) != mFailed.end();
+    }
+
+    bool takeFrame(uint32_t track, uint32_t playIdx, PresentedImage &out)
+    {
+        std::lock_guard<std::mutex> lock(mMu);
+        auto                        it = findReady(track, playIdx);
+        if (it == mReady.end())
+            return false;
+        out = std::move(*it);
+        mReady.erase(it);
+        return true;
+    }
+
+private:
+    std::deque<PresentedImage>::iterator findReady(uint32_t track, uint32_t playIdx)
+    {
+        return std::find_if(mReady.begin(), mReady.end(), [&](const PresentedImage &image)
+                            { return image.trackIdx == track && image.playIdx == playIdx; });
+    }
+
+    bool hasJob(uint32_t &track, uint32_t &playIdx, uint32_t &epoch)
+    {
+        if (mPaused || mWanted.empty())
+            return false;
+        for (uint32_t idx : mWanted)
+        {
+            if (findReady(mTrack, idx) != mReady.end())
+                continue;
+            if (std::find(mFailed.begin(), mFailed.end(), idx) != mFailed.end())
+                continue;
+            track   = mTrack;
+            playIdx = idx;
+            epoch   = mEpoch.load(std::memory_order_acquire);
+            return true;
+        }
+        return false;
+    }
+
+    void loop()
+    {
+        while (true)
+        {
+            uint32_t track   = 0;
+            uint32_t playIdx = 0;
+            uint32_t epoch   = 0;
+            {
+                std::unique_lock<std::mutex> lock(mMu);
+                mCv.wait(lock, [&] { return mStop || hasJob(track, playIdx, epoch); });
+                if (mStop)
+                    return;
+            }
+
+            uint32_t sampleIdx = 0;
+            if (!getMp4DataShare().sampleIndexForPlayIndex(track, playIdx, sampleIdx))
+            {
+                std::lock_guard<std::mutex> lock(mMu);
+                if (epoch == mEpoch.load(std::memory_order_acquire))
+                    mFailed.push_back(playIdx);
+                continue;
+            }
+
+            MyAVFrame frame;
+            int       ret = getMp4DataShare().decodeFrameAt(track, sampleIdx, frame, supportFormats, &mEpoch, epoch);
+            if (ret != 0)
+            {
+                if (ret < 0)
+                {
+                    std::lock_guard<std::mutex> lock(mMu);
+                    if (epoch == mEpoch.load(std::memory_order_acquire))
+                        mFailed.push_back(playIdx);
+                }
+                continue;
+            }
+
+            PresentedImage image;
+            if (!makePresentedImage(frame, track, playIdx, image))
+            {
+                std::lock_guard<std::mutex> lock(mMu);
+                if (epoch == mEpoch.load(std::memory_order_acquire))
+                    mFailed.push_back(playIdx);
+                continue;
+            }
+
+            std::lock_guard<std::mutex> lock(mMu);
+            if (mPaused || epoch != mEpoch.load(std::memory_order_acquire))
+                continue;
+            if (std::find(mWanted.begin(), mWanted.end(), playIdx) == mWanted.end())
+                continue;
+            mReady.push_back(std::move(image));
+            while (mReady.size() > 12)
+                mReady.pop_front();
+        }
+    }
+
+    std::thread                  mThread;
+    std::mutex                   mMu;
+    std::condition_variable      mCv;
+    std::atomic<uint32_t>        mEpoch{1};
+    bool                         mStop   = false;
+    bool                         mPaused = true;
+    uint32_t                     mTrack  = 0;
+    uint32_t                     mAnchor = 0;
+    std::vector<uint32_t>        mWanted;
+    std::vector<uint32_t>        mFailed;
+    std::deque<PresentedImage>   mReady;
+};
+
+static uint32_t getNextIFrame(const std::vector<uint32_t> &iFrameList, uint32_t curFrame);
+
 void VideoStreamInfo::updateFrameTexture()
 {
-    MyAVFrame frame;
-    auto     &ptsList = getMp4DataShare().tracksFramePtsList[mCurSelectTrack];
-    if (ptsList.empty())
-        return;
-    uint32_t realFrameIdx = ptsList[mCurSelectFrame[mCurSelectTrack]];
-    updateCurrFrameInfo();
+    presentReadyFrame();
+}
 
-    if (getMp4DataShare().decodeFrameAt(mCurSelectTrack, realFrameIdx, frame, supportFormats) < 0)
-        return;
+void VideoStreamInfo::cancelDecode()
+{
+    if (mDecodeWorker)
+        mDecodeWorker->cancel();
+}
+
+bool VideoStreamInfo::presentReadyFrame()
+{
+    if (!mDecodeWorker)
+        return false;
+
+    PresentedImage image;
+    if (!mDecodeWorker->takeFrame(mCurSelectTrack, mCurSelectFrame[mCurSelectTrack], image))
+        return false;
+
+    // Same play index was already on screen — ignore re-decoded duplicates from prefetch.
+    if (mPresentedTrack == image.trackIdx && mPresentedPlayIdx == image.playIdx)
+        return false;
 
     ImageData imageData;
-    imageData.format = transFormat((AVPixelFormat)frame->format);
-    if (imageData.format == ImGui::ImGuiImageFormat_None)
-        return;
-    if (AV_PIX_FMT_YUVJ444P == frame->format || AV_PIX_FMT_YUVJ422P == frame->format || AV_PIX_FMT_YUVJ411P == frame->format
-        || AV_PIX_FMT_YUVJ420P == frame->format || frame->color_range == AVCOL_RANGE_JPEG)
+    imageData.format     = image.format;
+    imageData.colorRange = image.colorRange;
+    imageData.width      = (unsigned int)image.width;
+    imageData.height     = (unsigned int)image.height;
+    for (int i = 0; i < image.planeCount; i++)
     {
-        imageData.colorRange = ImGui::ImGuiImageColorRange_0_255;
+        imageData.plane[i]  = image.plane[i].get();
+        imageData.stride[i] = (unsigned int)image.stride[i];
     }
-    else
-    {
-        imageData.colorRange = ImGui::ImGuiImageColorRange_16_235;
-    }
-
-    int planeCount = getPlaneCount(imageData.format);
-    for (int i = 0; i < planeCount; i++)
-    {
-        imageData.plane[i]  = frame->data[i];
-        imageData.stride[i] = frame->linesize[i];
-    }
-
-    imageData.width  = frame->width;
-    imageData.height = frame->height;
-
     updateImageTexture(imageData, mFrameTexture);
-
     mImageDisplay.setTexture(mFrameTexture);
     mFrameDisplay.open();
+    mPresentedTrack   = image.trackIdx;
+    mPresentedPlayIdx = image.playIdx;
+    notePresentedFrame();
+    if (!mIsPlaying)
+        SET_APPLICATION_STATUS("Frame %u", image.playIdx + 1);
+    return true;
+}
+
+void VideoStreamInfo::notePresentedFrame()
+{
+    uint64_t now = gettime_ms();
+    mPresentedTimesMs.push_back(now);
+    while (!mPresentedTimesMs.empty() && now - mPresentedTimesMs.front() > 1000)
+        mPresentedTimesMs.pop_front();
+}
+
+float VideoStreamInfo::actualFrameRate()
+{
+    uint64_t now = gettime_ms();
+    while (!mPresentedTimesMs.empty() && now - mPresentedTimesMs.front() > 1000)
+        mPresentedTimesMs.pop_front();
+    if (mPresentedTimesMs.size() < 2)
+        return 0.f;
+    uint64_t span = mPresentedTimesMs.back() - mPresentedTimesMs.front();
+    if (span == 0)
+        return 0.f;
+    return (mPresentedTimesMs.size() - 1) * 1000.f / (float)span;
 }
 
 // #FF0000FF
@@ -214,10 +570,15 @@ VideoStreamInfo::VideoStreamInfo()
     mImageDisplay.removeChildFlag(ImGuiChildFlags_Borders);
 
     mFrameRateCombo.setLabelPosition(true);
-    for (auto rate : availableFrameRate)
-        mFrameRateCombo.addSelectableItem(rate, std::to_string(rate));
+    mFrameRateCombo.setGetComboItemsCallback(fillFrameRateComboItems);
     mFrameRateCombo.addComboFlag(ImGuiComboFlags_WidthFitPreview);
-    mFrameRateCombo.setSelected(1000 / mPlayIntervalMs);
+    {
+        float displayHz = ImGui::getDisplayRefreshRate();
+        getAppConfigure().playFrameRate  = clampFrameRateToDisplay(getAppConfigure().playFrameRate, displayHz);
+        getAppConfigure().playIFrameRate = clampFrameRateToDisplay(getAppConfigure().playIFrameRate, displayHz);
+        mPlayIntervalUs                  = playIntervalUsFromFps(getAppConfigure().playFrameRate);
+        mFrameRateCombo.setSelected(getAppConfigure().playFrameRate);
+    }
 
     mPlayProgressBar.setCallbacks(
         [this](float progress)
@@ -228,6 +589,8 @@ VideoStreamInfo::VideoStreamInfo()
             mSelectChanged = true;
         },
         [this]() -> float { return (float)mCurSelectFrame[mCurSelectTrack] / mTotalVideoFrameCount; });
+
+    mDecodeWorker = std::make_unique<VideoDecodeWorker>();
 }
 
 int VideoStreamInfo::seekToFrame(uint32_t frameIdx, bool seekToIFrame)
@@ -236,46 +599,30 @@ int VideoStreamInfo::seekToFrame(uint32_t frameIdx, bool seekToIFrame)
     if (ptsList == getMp4DataShare().tracksFramePtsList.end() || frameIdx >= ptsList->second.size())
         return -1;
 
-    uint32_t keyFrameIdx = 0;
-    int      ret         = getMp4DataShare().seekToFrame(mCurSelectTrack, ptsList->second[frameIdx], keyFrameIdx);
-    if (ret < 0)
-        return ret;
     if (seekToIFrame)
     {
-        if (Mp4ParseData::SeekToKeyFrame == ret || Mp4ParseData::ContinueDecodeToFrame == ret)
+        auto &samples = getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->samplesInfo;
+        auto &pts     = ptsList->second;
+        for (uint32_t i = frameIdx;; --i)
         {
-            mSeekToFrame                     = keyFrameIdx;
-            mCurSelectFrame[mCurSelectTrack] = keyFrameIdx;
-        }
-        else if (Mp4ParseData::FrameInCache == ret)
-        {
-            mSeekToFrame                     = frameIdx;
-            mCurSelectFrame[mCurSelectTrack] = frameIdx;
-        }
-    }
-    else
-    {
-        mSeekToFrame = frameIdx;
-        if (Mp4ParseData::SeekToKeyFrame == ret)
-        {
-            mCurSelectFrame[mCurSelectTrack] = keyFrameIdx;
-        }
-        else if (Mp4ParseData::FrameInCache == ret)
-        {
-            mCurSelectFrame[mCurSelectTrack] = frameIdx;
-        }
-        else if (Mp4ParseData::ContinueDecodeToFrame == ret)
-        {
-            mCurSelectFrame[mCurSelectTrack]++;
+            if (pts[i] < samples.size() && samples[pts[i]].isKeyFrame)
+            {
+                frameIdx = i;
+                break;
+            }
+            if (i == 0)
+                break;
         }
     }
 
-    mIsSeeking = true;
+    mCurSelectFrame[mCurSelectTrack] = frameIdx;
+    mSelectChanged                   = true;
     return 0;
 }
 
 VideoStreamInfo::~VideoStreamInfo()
 {
+    mDecodeWorker.reset();
     freeTexture(mFrameTexture);
 }
 
@@ -597,10 +944,10 @@ bool VideoStreamInfo::showHistogramAndFrameInfo(bool updateScroll)
     }
 
     ImGui::SetCursorScreenPos(mHistogramPos);
-    if (std::find(std::begin(availableFrameRate), std::end(availableFrameRate), getAppConfigure().playFrameRate)
-        == std::end(availableFrameRate))
     {
-        getAppConfigure().playFrameRate = 20;
+        float displayHz                     = ImGui::getDisplayRefreshRate();
+        getAppConfigure().playFrameRate     = clampFrameRateToDisplay(getAppConfigure().playFrameRate, displayHz);
+        getAppConfigure().playIFrameRate    = clampFrameRateToDisplay(getAppConfigure().playIFrameRate, displayHz);
     }
 
     bool selectFrame = false;
@@ -608,7 +955,6 @@ bool VideoStreamInfo::showHistogramAndFrameInfo(bool updateScroll)
     if (drawHistogram(updateScroll || selectFrame || mSelectChanged))
     {
         mIsPlaying  = false;
-        mIsSeeking  = true;
         selectFrame = true;
     }
 
@@ -670,7 +1016,7 @@ bool VideoStreamInfo::showHistogramAndFrameInfo(bool updateScroll)
     return selectFrame;
 }
 
-uint32_t getNextIFrame(std::vector<uint32_t> iFrameList, uint32_t curFrame)
+static uint32_t getNextIFrame(const std::vector<uint32_t> &iFrameList, uint32_t curFrame)
 {
     if (iFrameList.empty())
         return 0;
@@ -682,7 +1028,7 @@ uint32_t getNextIFrame(std::vector<uint32_t> iFrameList, uint32_t curFrame)
     return iFrameList.back();
 }
 
-uint32_t getPrevIFrame(std::vector<uint32_t> iFrameList, uint32_t curFrame)
+uint32_t getPrevIFrame(const std::vector<uint32_t> &iFrameList, uint32_t curFrame)
 {
     if (iFrameList.empty())
         return 0;
@@ -692,6 +1038,55 @@ uint32_t getPrevIFrame(std::vector<uint32_t> iFrameList, uint32_t curFrame)
             return *it;
 
     return iFrameList.front();
+}
+
+void VideoStreamInfo::submitDecodeRequest()
+{
+    if (!mDecodeWorker || getMp4DataShare().videoTracksIdx.empty())
+        return;
+
+    auto ptsList = getMp4DataShare().tracksFramePtsList.find(mCurSelectTrack);
+    if (ptsList == getMp4DataShare().tracksFramePtsList.end() || ptsList->second.empty())
+        return;
+
+    uint32_t count = (uint32_t)ptsList->second.size();
+    uint32_t cur   = mCurSelectFrame[mCurSelectTrack];
+    if (cur >= count)
+        cur = count - 1;
+
+    std::vector<uint32_t> want;
+    bool                  needCurrent = mPresentedTrack != mCurSelectTrack || mPresentedPlayIdx != cur;
+    if (needCurrent)
+        want.push_back(cur);
+
+    if (mIsPlaying)
+    {
+        uint32_t n = cur;
+        for (uint32_t i = 0; i < kDecodePrefetch; i++)
+        {
+            uint32_t next = n;
+            if (getAppConfigure().onlyPlayIFrame)
+            {
+                auto &iFrames = getMp4DataShare().tracksIFrameList[mCurSelectTrack];
+                if (iFrames.empty() || n >= iFrames.back())
+                    break;
+                next = getNextIFrame(iFrames, n);
+                if (next <= n)
+                    break;
+            }
+            else if (n + 1 >= count)
+            {
+                break;
+            }
+            else
+            {
+                next = n + 1;
+            }
+            want.push_back(next);
+            n = next;
+        }
+    }
+    mDecodeWorker->setRequest(mCurSelectTrack, want);
 }
 
 bool VideoStreamInfo::show()
@@ -707,70 +1102,63 @@ bool VideoStreamInfo::show()
 
     bool playNextFrame = false;
     bool selectFrame   = false;
+    bool frameShown    = mPresentedTrack == mCurSelectTrack && mPresentedPlayIdx == mCurSelectFrame[mCurSelectTrack];
 
-    if (mIsSeeking)
-    {
-        if (mCurSelectFrame[mCurSelectTrack] == mSeekToFrame)
-        {
-            mIsSeeking = false;
-            SET_APPLICATION_STATUS("Seeking To Frame %d Done", mSeekToFrame + 1);
-        }
-        else
-        {
-            mCurSelectFrame[mCurSelectTrack]++;
-            playNextFrame = true;
-            SET_APPLICATION_STATUS("Seeking To Frame %d...now at %d", mSeekToFrame + 1, mCurSelectFrame[mCurSelectTrack]);
-        }
-    }
+    auto &ptsList = getMp4DataShare().tracksFramePtsList[mCurSelectTrack];
+    auto &iFrames = getMp4DataShare().tracksIFrameList[mCurSelectTrack];
+    uint32_t frameCount = (uint32_t)ptsList.size();
 
-    if (mIsPlaying)
+    if (mIsPlaying && mDecodeWorker)
     {
-        uint64_t curTimeMs = gettime_ms();
-        if (curTimeMs - mLastPlayTimeMs >= mPlayIntervalMs)
+        int fps = getAppConfigure().onlyPlayIFrame ? getAppConfigure().playIFrameRate : getAppConfigure().playFrameRate;
+        mPlayIntervalUs = playIntervalUsFromFps(fps);
+
+        uint64_t nowUs = gettime_us();
+        if (nowUs >= mLastPlayTimeUs + mPlayIntervalUs)
         {
-            mLastPlayTimeMs = curTimeMs;
+            uint32_t cur   = mCurSelectFrame[mCurSelectTrack];
+            bool     atEnd = false;
+            uint32_t next  = cur;
             if (getAppConfigure().onlyPlayIFrame)
             {
-                if (mCurSelectFrame[mCurSelectTrack] >= getMp4DataShare().tracksIFrameList[mCurSelectTrack].back())
-                {
-                    if (AppConfigures::RestartOnEnd == getAppConfigure().playStrategy)
-                    {
-                        mCurSelectFrame[mCurSelectTrack] = getMp4DataShare().tracksIFrameList[mCurSelectTrack].front();
-                        mHistogramScrollPos              = 0;
-                        selectFrame                      = true;
-                    }
-                    else
-                    {
-                        mIsPlaying = false;
-                    }
-                }
+                if (iFrames.empty() || cur >= iFrames.back())
+                    atEnd = true;
                 else
-                {
-                    mCurSelectFrame[mCurSelectTrack] =
-                        getNextIFrame(getMp4DataShare().tracksIFrameList[mCurSelectTrack], mCurSelectFrame[mCurSelectTrack]);
-                    playNextFrame = true;
-                }
+                    next = getNextIFrame(iFrames, cur);
+            }
+            else if (cur + 1 >= frameCount)
+            {
+                atEnd = true;
             }
             else
             {
-                if (mCurSelectFrame[mCurSelectTrack] >= getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
+                next = cur + 1;
+            }
+
+            if (atEnd)
+            {
+                if (AppConfigures::RestartOnEnd == getAppConfigure().playStrategy)
                 {
-                    if (AppConfigures::RestartOnEnd == getAppConfigure().playStrategy)
-                    {
-                        mCurSelectFrame[mCurSelectTrack] = 0;
-                        mHistogramScrollPos              = 0;
-                        selectFrame                      = true;
-                    }
-                    else
-                    {
-                        mIsPlaying = false;
-                    }
+                    mCurSelectFrame[mCurSelectTrack] = getAppConfigure().onlyPlayIFrame && !iFrames.empty() ? iFrames.front() : 0;
+                    mHistogramScrollPos              = 0;
+                    mLastPlayTimeUs                  = nowUs;
+                    selectFrame                      = true;
                 }
                 else
                 {
-                    mCurSelectFrame[mCurSelectTrack]++;
-                    playNextFrame = true;
+                    mIsPlaying = false;
                 }
+            }
+            else if (mDecodeWorker->hasFrame(mCurSelectTrack, next) || mDecodeWorker->isFailed(mCurSelectTrack, next))
+            {
+                mCurSelectFrame[mCurSelectTrack] = next;
+                // Keep a fixed cadence from the previous deadline. Using "now" here makes the
+                // effective interval snap to UI refresh boundaries and under-runs the target FPS.
+                mLastPlayTimeUs += mPlayIntervalUs;
+                if (mLastPlayTimeUs + mPlayIntervalUs < nowUs)
+                    mLastPlayTimeUs = nowUs;
+                playNextFrame = true;
+                frameShown    = false;
             }
         }
     }
@@ -779,63 +1167,71 @@ bool VideoStreamInfo::show()
     {
         if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
         {
-            if (mCurSelectFrame[mCurSelectTrack] < mTotalVideoFrameCount - 1)
+            if (frameShown && mCurSelectFrame[mCurSelectTrack] < frameCount - 1)
             {
                 mCurSelectFrame[mCurSelectTrack]++;
                 selectFrame = true;
+                frameShown  = false;
             }
         }
         else if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
         {
-            if (mCurSelectFrame[mCurSelectTrack] > 0)
+            if (frameShown && mCurSelectFrame[mCurSelectTrack] > 0)
             {
                 mCurSelectFrame[mCurSelectTrack]--;
                 selectFrame = true;
+                frameShown  = false;
             }
         }
 
         if (ImGui::IsKeyReleased(ImGuiKey_Space, false))
         {
             mIsPlaying = !mIsPlaying;
+            if (mIsPlaying)
+                mLastPlayTimeUs = gettime_us();
         }
     }
 
     if (mNextFrameButton.isClicked() || mNextFrameButton.isActiveFor(500))
     {
-        if (mCurSelectFrame[mCurSelectTrack] < getMp4DataShare().tracksInfo[mCurSelectTrack].mediaInfo->sampleCount - 1)
+        if (frameShown && mCurSelectFrame[mCurSelectTrack] + 1 < frameCount)
         {
             seekToFrame(mCurSelectFrame[mCurSelectTrack] + 1);
             selectFrame = true;
+            frameShown  = false;
         }
         mIsPlaying = false;
     }
 
     if (mPrevFrameButton.isClicked() || mPrevFrameButton.isActiveFor(500))
     {
-        if (mCurSelectFrame[mCurSelectTrack] > 0)
+        if (frameShown && mCurSelectFrame[mCurSelectTrack] > 0)
         {
             seekToFrame(mCurSelectFrame[mCurSelectTrack] - 1);
             selectFrame = true;
+            frameShown  = false;
         }
         mIsPlaying = false;
     }
 
     if (mPrevIFrameButton.isClicked() || mPrevIFrameButton.isActiveFor(500))
     {
-        if (mCurSelectFrame[mCurSelectTrack] > 0)
+        if (frameShown && mCurSelectFrame[mCurSelectTrack] > 0 && !iFrames.empty())
         {
-            seekToFrame(getPrevIFrame(getMp4DataShare().tracksIFrameList[mCurSelectTrack], mCurSelectFrame[mCurSelectTrack]));
+            seekToFrame(getPrevIFrame(iFrames, mCurSelectFrame[mCurSelectTrack]));
             selectFrame = true;
+            frameShown  = false;
         }
         mIsPlaying = false;
     }
 
     if (mNextIFrameButton.isClicked() || mNextIFrameButton.isActiveFor(500))
     {
-        if (mCurSelectFrame[mCurSelectTrack] < getMp4DataShare().tracksIFrameList[mCurSelectTrack].back())
+        if (frameShown && !iFrames.empty() && mCurSelectFrame[mCurSelectTrack] < iFrames.back())
         {
-            seekToFrame(getNextIFrame(getMp4DataShare().tracksIFrameList[mCurSelectTrack], mCurSelectFrame[mCurSelectTrack]));
+            seekToFrame(getNextIFrame(iFrames, mCurSelectFrame[mCurSelectTrack]));
             selectFrame = true;
+            frameShown  = false;
         }
         mIsPlaying = false;
     }
@@ -848,14 +1244,21 @@ bool VideoStreamInfo::show()
         ImGui::SetCursorScreenPos(histogramWinPos + ImVec2(contentRegion.x * HISTOGRAM_WIDTH_RATIO, 0));
         ImGui::BeginChild("Frame Info", ImVec2(contentRegion.x * (1 - HISTOGRAM_WIDTH_RATIO), HISTOGRAM_HEIGHT),
                           ImGuiChildFlags_Borders);
+        updateCurrFrameInfo();
         showFrameInfo();
         ImGui::EndChild();
     }
+    else
+    {
+        updateCurrFrameInfo();
+    }
 
-    if (selectFrame || playNextFrame || mSelectChanged)
-        updateFrameTexture();
+    submitDecodeRequest();
+    bool presented = presentReadyFrame();
+    if ((selectFrame || mSelectChanged) && !presented)
+        SET_APPLICATION_STATUS("Decoding Frame %u", mCurSelectFrame[mCurSelectTrack] + 1);
 
-    bool frameChanged = mSelectChanged || selectFrame || playNextFrame;
+    bool frameChanged = mSelectChanged || selectFrame || playNextFrame || presented;
     mSelectChanged    = false;
 
     ImGui::SetCursorScreenPos(startPos);
@@ -885,6 +1288,11 @@ void VideoStreamInfo::updateData()
 {
     freeTexture(mFrameTexture);
     mImageDisplay.clear();
+    mPresentedTimesMs.clear();
+    mPresentedTrack   = (uint32_t)-1;
+    mPresentedPlayIdx = (uint32_t)-1;
+    if (mDecodeWorker)
+        mDecodeWorker->cancel();
 
     if (getMp4DataShare().videoTracksIdx.empty())
         return;
@@ -897,12 +1305,13 @@ void VideoStreamInfo::updateData()
 
     mIsPlaying = false;
 
-    updateFrameTexture();
+    submitDecodeRequest();
 }
 
 void VideoStreamInfo::showFrameInfo()
 {
     ImGui::Text("Play Index: %u", mCurSelectFrame[mCurSelectTrack] + 1);
+    ImGui::Text("Actual FPS: %.1f", actualFrameRate());
     ImGui::Text("Index: %u", mCurrentFrameInfo.frameIdx + 1);
     ImGui::Text("Type: %s", mCurrentFrameInfo.frameType.c_str());
     if (getAppConfigure().needShowInHex)
@@ -949,8 +1358,8 @@ void VideoStreamInfo::showFrameDisplay()
         mPlayButton.show();
         if (mPlayButton.isClicked())
         {
-            mIsPlaying      = true;
-            mLastPlayTimeMs = gettime_ms();
+            mIsPlaying       = true;
+            mLastPlayTimeUs  = gettime_us();
         }
     }
 
@@ -966,26 +1375,23 @@ void VideoStreamInfo::showFrameDisplay()
                                    >= getMp4DataShare().tracksIFrameList[mCurSelectTrack].back());
 
     SameLine();
-    if (getAppConfigure().onlyPlayIFrame)
     {
-        if (mFrameRateCombo.getSelected() != getAppConfigure().playIFrameRate)
-            mFrameRateCombo.setSelected(getAppConfigure().playIFrameRate);
-        mFrameRateCombo.show();
-        if (mFrameRateCombo.selectChanged())
+        float displayHz  = ImGui::getDisplayRefreshRate();
+        int  &activeRate = getAppConfigure().onlyPlayIFrame ? getAppConfigure().playIFrameRate : getAppConfigure().playFrameRate;
+        int   clamped    = clampFrameRateToDisplay(activeRate, displayHz);
+        if (clamped != activeRate)
         {
-            getAppConfigure().playIFrameRate = mFrameRateCombo.getSelected();
-            mPlayIntervalMs                  = 1000 / getAppConfigure().playIFrameRate;
+            activeRate      = clamped;
+            mPlayIntervalUs = playIntervalUsFromFps(clamped);
         }
-    }
-    else
-    {
-        if (mFrameRateCombo.getSelected() != getAppConfigure().playFrameRate)
-            mFrameRateCombo.setSelected(getAppConfigure().playFrameRate);
+        if (mFrameRateCombo.getSelected() != activeRate)
+            mFrameRateCombo.setSelected(activeRate);
         mFrameRateCombo.show();
         if (mFrameRateCombo.selectChanged())
         {
-            getAppConfigure().playFrameRate = mFrameRateCombo.getSelected();
-            mPlayIntervalMs                 = 1000 / getAppConfigure().playFrameRate;
+            activeRate      = clampFrameRateToDisplay(mFrameRateCombo.getSelected(), displayHz);
+            mPlayIntervalUs = playIntervalUsFromFps(activeRate);
+            mFrameRateCombo.setSelected(activeRate);
         }
     }
 
@@ -1013,13 +1419,9 @@ void VideoStreamInfo::showFrameDisplay()
     if (Checkbox("Only Play I Frame", &getAppConfigure().onlyPlayIFrame))
     {
         if (getAppConfigure().onlyPlayIFrame)
-        {
-            mPlayIntervalMs = 1000 / getAppConfigure().playIFrameRate;
-        }
+            mPlayIntervalUs = playIntervalUsFromFps(getAppConfigure().playIFrameRate);
         else
-        {
-            mPlayIntervalMs = 1000 / getAppConfigure().playFrameRate;
-        }
+            mPlayIntervalUs = playIntervalUsFromFps(getAppConfigure().playFrameRate);
     }
 
     mPlayControlPanelSize = ImGui::GetCursorScreenPos() - controlPanelStart;

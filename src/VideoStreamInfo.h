@@ -1,8 +1,10 @@
 #ifndef _VIDEO_STREAM_INFO_H_
 #define _VIDEO_STREAM_INFO_H_
 
+#include <deque>
 #include <functional>
 #include <map>
+#include <memory>
 
 #include "ImGuiTools.h"
 #include "ImGuiWindow.h"
@@ -45,6 +47,7 @@ public:
     virtual ~VideoStreamInfo();
     bool show();
     void resetData();
+    void cancelDecode();
     void updateFrameTexture();
     void updateFrameInfo(unsigned int trackIdx, uint32_t frameIdx, H26X_FRAME_TYPE_E frameType);
     void setImageSampleType(ImGui::ImGuiImageSampleType sampleType);
@@ -53,6 +56,10 @@ private:
     void updateData();
     bool drawHistogram(bool updateScroll);
     void updateCurrFrameInfo();
+    void notePresentedFrame();
+    float actualFrameRate();
+    void submitDecodeRequest();
+    bool presentReadyFrame();
     void showFrameInfo();
     void showFrameDisplay();
     bool showHistogramAndFrameInfo(bool updateScroll);
@@ -61,11 +68,15 @@ private:
     int saveFrameToFile();
 
 private:
+    struct VideoDecodeWorker;
+    std::unique_ptr<VideoDecodeWorker> mDecodeWorker;
+
     std::map<unsigned int /* trackIdx */, uint32_t /* frameIdx sort by pts */> mCurSelectFrame;
 
-    uint32_t mSeekToFrame = 0;
-
     bool mSelectChanged = false;
+
+    uint32_t mPresentedTrack   = (uint32_t)-1;
+    uint32_t mPresentedPlayIdx = (uint32_t)-1;
 
     unsigned int mCurSelectTrack       = 0;
     uint64_t     mHistogramMaxSize     = 0;
@@ -129,11 +140,11 @@ private:
 
     ImGui::ImGuiInputCombo mFrameRateCombo = ImGui::ImGuiInputCombo("Framerate");
 
-    bool     mIsPlaying      = false;
-    bool     mIsSeeking      = false;
-    uint64_t mLastPlayTimeMs = 0;
-    uint32_t mPlayIntervalMs = 50; // 20fps
-    ImVec2   mPlayControlPanelSize;
+    bool                 mIsPlaying = false;
+    std::deque<uint64_t> mPresentedTimesMs;
+    uint64_t             mLastPlayTimeUs = 0;
+    uint64_t             mPlayIntervalUs = 50000; // 20fps
+    ImVec2               mPlayControlPanelSize;
 
     uint64_t       mLastMoveLeftTime  = 0;
     uint64_t       mLastMoveRightTime = 0;

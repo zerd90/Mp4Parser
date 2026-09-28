@@ -1050,6 +1050,7 @@ Mp4ParserApp::~Mp4ParserApp() {}
 
 void Mp4ParserApp::reset()
 {
+    mVideoStreamInfo.cancelDecode();
     getMp4DataShare().clear();
 
     mCurrBoxSelect      = nullptr;
@@ -1492,6 +1493,7 @@ void Mp4ParserApp::resetFileInfo()
     mCurrBoxSelect   = nullptr;
     mCurrTrackSelect = -1;
 
+    mVideoStreamInfo.cancelDecode();
     getMp4DataShare().updateData();
 
     // update box table data
@@ -1536,6 +1538,7 @@ void Mp4ParserApp::startParseFile(const std::string &file_path)
 }
 void Mp4ParserApp::exitInternal()
 {
+    mVideoStreamInfo.cancelDecode();
     getMp4DataShare().clear();
     mVideoStreamInfo.resetData();
 }
